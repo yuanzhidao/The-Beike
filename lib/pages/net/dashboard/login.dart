@@ -4,9 +4,7 @@ import '/services/provider.dart';
 import '/types/net.dart';
 
 class NetLoginDialog extends StatefulWidget {
-  const NetLoginDialog({super.key, required this.serviceType});
-
-  final NetServiceType serviceType;
+  const NetLoginDialog({super.key});
 
   @override
   State<NetLoginDialog> createState() => _NetLoginDialogState();
@@ -65,9 +63,6 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
   }
 
   Future<void> _refreshRequirement() async {
-    if (_serviceProvider.currentNetServiceType != widget.serviceType) {
-      _serviceProvider.switchNetService(widget.serviceType);
-    }
     try {
       final needExtraCodeNew =
           (await _serviceProvider.netService.getLoginRequirements())
@@ -147,25 +142,6 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
   }
 
   Future<void> _handleLogin() async {
-    // Switch to the appropriate service type
-    final targetType = widget.serviceType;
-    if (_serviceProvider.currentNetServiceType != targetType) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-      try {
-        _serviceProvider.switchNetService(targetType);
-        await _refreshRequirement();
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
-      }
-    }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -222,8 +198,7 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
       final username = _usernameController.text.trim();
       final password = _passwordController.text;
 
-      return widget.serviceType == NetServiceType.mock ||
-          username.isNotEmpty && password.isNotEmpty;
+      return username.isNotEmpty && password.isNotEmpty;
     }
 
     return AlertDialog(
@@ -234,18 +209,6 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('请输入校园网的账号和密码，以登录管理面板。', style: theme.textTheme.bodySmall),
-            if (widget.serviceType == NetServiceType.mock) ...[
-              const SizedBox(height: 8),
-              Text(
-                '您正在使用 Mock 环境进行离线测试。'
-                '\n'
-                '您无需输入账号和密码。',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontSize: 12,
-                ),
-              ),
-            ],
             const SizedBox(height: 16),
             TextField(
               controller: _usernameController,

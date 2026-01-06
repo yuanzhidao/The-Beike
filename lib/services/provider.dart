@@ -1,43 +1,25 @@
 import 'package:flutter/foundation.dart';
 import '/services/courses/base.dart';
-import '/services/courses/ustb_byyt_mock.dart';
-import '/services/courses/ustb_byyt_prod.dart';
+import '/services/courses/ustb_byyt.dart';
 import '/services/courses/exceptions.dart';
 import '/services/store/base.dart';
 import '/services/store/general.dart';
 import '/services/net/base.dart';
-import '/services/net/drcom_net_mock.dart';
-import '/services/net/drcom_net_prod.dart';
+import '/services/net/drcom_net.dart';
 import '/services/sync/base.dart';
-import '/services/sync/sync_service_dev.dart';
-import '/services/sync/sync_service_prod.dart';
+import '/services/sync/sync_service.dart';
 import '/types/courses.dart';
 import '/types/sync.dart';
-
-enum CoursesServiceType { mock, production }
-
-enum NetServiceType { mock, production }
-
-enum SyncServiceType { dev, production }
 
 class ServiceProvider extends ChangeNotifier {
   // Course Service
   late BaseCoursesService _coursesService;
-  CoursesServiceType _currentServiceType = kDebugMode
-      ? CoursesServiceType.mock
-      : CoursesServiceType.production;
 
   // Net Service
   late BaseNetService _netService;
-  NetServiceType _currentNetServiceType = kDebugMode
-      ? NetServiceType.mock
-      : NetServiceType.production;
 
   // Sync Service
   late BaseSyncService _syncService;
-  SyncServiceType _currentSyncServiceType = kDebugMode
-      ? SyncServiceType.dev
-      : SyncServiceType.production;
 
   // Store Service
   late BaseStoreService _storeService;
@@ -47,15 +29,9 @@ class ServiceProvider extends ChangeNotifier {
   static ServiceProvider get instance => _instance;
 
   ServiceProvider._internal() {
-    _coursesService = _currentServiceType == CoursesServiceType.mock
-        ? UstbByytMockService()
-        : UstbByytProdService();
-    _netService = _currentNetServiceType == NetServiceType.mock
-        ? DrcomNetMockService()
-        : DrcomNetProdService();
-    _syncService = _currentSyncServiceType == SyncServiceType.dev
-        ? SyncServiceDev()
-        : SyncServiceProd();
+    _coursesService = UstbByytService();
+    _netService = DrcomNetService();
+    _syncService = SyncService();
     _storeService = GeneralStoreService();
   }
 
@@ -63,11 +39,7 @@ class ServiceProvider extends ChangeNotifier {
 
   BaseNetService get netService => _netService;
 
-  NetServiceType get currentNetServiceType => _currentNetServiceType;
-
   BaseSyncService get syncService => _syncService;
-
-  SyncServiceType get currentSyncServiceType => _currentSyncServiceType;
 
   BaseStoreService get storeService => _storeService;
 
@@ -83,54 +55,9 @@ class ServiceProvider extends ChangeNotifier {
     }
   }
 
-  /// Switch the courses service to the specified type.
-  /// This method provides a unified way to switch between mock and production services.
-  void switchCoursesService(CoursesServiceType type) {
-    _switchCoursesService(type);
-  }
-
-  void _switchCoursesService(CoursesServiceType type) {
-    if (_currentServiceType == type) return;
-
-    _coursesService = type == CoursesServiceType.mock
-        ? UstbByytMockService()
-        : UstbByytProdService();
-    _currentServiceType = type;
-    notifyListeners();
-  }
-
-  void switchNetService(NetServiceType type) {
-    _switchNetService(type);
-  }
-
-  void _switchNetService(NetServiceType type) {
-    if (_currentNetServiceType == type) return;
-
-    _disposeNetService();
-    _netService = type == NetServiceType.mock
-        ? DrcomNetMockService()
-        : DrcomNetProdService();
-    _currentNetServiceType = type;
-    notifyListeners();
-  }
-
-  void switchSyncService(SyncServiceType type) {
-    _switchSyncService(type);
-  }
-
-  void _switchSyncService(SyncServiceType type) {
-    if (_currentSyncServiceType == type) return;
-
-    _syncService = type == SyncServiceType.dev
-        ? SyncServiceDev()
-        : SyncServiceProd();
-    _currentSyncServiceType = type;
-    notifyListeners();
-  }
-
   void _disposeNetService() {
-    if (_netService is DrcomNetProdService) {
-      (_netService as DrcomNetProdService).dispose();
+    if (_netService is DrcomNetService) {
+      (_netService as DrcomNetService).dispose();
     }
   }
 
@@ -262,18 +189,13 @@ class ServiceProvider extends ChangeNotifier {
   //
 
   Future<void> loginToCoursesService({String? cookie}) async {
-    if (_currentServiceType == CoursesServiceType.production) {
-      if (cookie == null) {
-        throw Exception('Cookie is required for production service login');
-      }
-      final prodService = coursesService as UstbByytProdService;
-      await prodService.loginWithCookie(cookie);
-      await prodService.login();
-      notifyListeners();
-    } else {
-      await coursesService.login();
-      notifyListeners();
+    if (cookie == null) {
+      throw Exception('Cookie is required for service login');
     }
+    final service = coursesService as UstbByytService;
+    await service.loginWithCookie(cookie);
+    await service.login();
+    notifyListeners();
   }
 
   Future<void> logoutFromCoursesService() async {
@@ -316,12 +238,8 @@ class ServiceProvider extends ChangeNotifier {
       final data = cachedData;
       final method = data.method;
 
-      if (method == "mock") {
-        switchCoursesService(CoursesServiceType.mock);
-        await loginToCoursesService();
-      } else if (method == "cookie" || method == "sso") {
+      if (method == "cookie" || method == "sso") {
         if (data.cookie != null && data.user != null) {
-          switchCoursesService(CoursesServiceType.production);
           await loginToCoursesService(cookie: data.cookie!);
           // Get new user info and verify consistency
           final newUserInfo = await coursesService.getUserInfo();

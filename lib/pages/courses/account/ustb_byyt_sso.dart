@@ -36,9 +36,6 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
   void initState() {
     super.initState();
     _serviceProvider.addListener(_onServiceStatusChanged);
-
-    // Switch to production service when opening dialog
-    _serviceProvider.switchCoursesService(CoursesServiceType.production);
   }
 
   @override

@@ -416,38 +416,8 @@ class _SyncPageState extends State<SyncPage> {
                 ),
               ],
             ),
-            const Divider(height: 24, color: null),
-            Row(
-              children: [
-                Text(
-                  '服务环境',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SegmentedButton<SyncServiceType>(
-                  segments: const [
-                    ButtonSegment(
-                      value: SyncServiceType.dev,
-                      label: Text('开发'),
-                      icon: Icon(Icons.code, size: 16),
-                    ),
-                    ButtonSegment(
-                      value: SyncServiceType.production,
-                      label: Text('生产'),
-                      icon: Icon(Icons.cloud, size: 16),
-                    ),
-                  ],
-                  selected: {_serviceProvider.currentSyncServiceType},
-                  onSelectionChanged: (Set<SyncServiceType> selected) {
-                    _serviceProvider.switchSyncService(selected.first);
-                  },
-                ),
-              ],
-            ),
             if (_syncData?.deviceId != null) ...[
-              const SizedBox(height: 16),
+              const Divider(height: 24, color: null),
               _buildDebugInfoRow(
                 '设备类型',
                 '${_getDeviceOsIcon(_syncData!.deviceOs!)} ${_syncData!.deviceOs}',

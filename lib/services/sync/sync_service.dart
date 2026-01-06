@@ -7,7 +7,7 @@ import 'convert.dart';
 import '/types/sync.dart';
 import '/utils/meta_info.dart';
 
-class SyncServiceProd extends BaseSyncService {
+class SyncService extends BaseSyncService {
   String get baseUrl => 'https://thebeike.cn/api';
   String get userAgent => 'TheBeike-GUI/${MetaInfo.instance.appVersion}';
 

@@ -2,14 +2,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'convert.dart';
+import '/services/net/convert.dart';
 import '/types/net.dart';
 import '/services/net/base.dart';
 import '/services/net/exceptions.dart';
 
-class DrcomNetProdService extends BaseNetService {
-  DrcomNetProdService({http.Client? client})
-    : _client = client ?? http.Client();
+class DrcomNetService extends BaseNetService {
+  DrcomNetService({http.Client? client}) : _client = client ?? http.Client();
 
   static const String _baseUrl = 'http://zifuwu.ustb.edu.cn:8080';
   // static const String _baseUrl =

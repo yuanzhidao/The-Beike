@@ -4,7 +4,6 @@ import '/services/base.dart';
 import '/types/courses.dart';
 import '/utils/app_bar.dart';
 import '/utils/sync_embeded.dart';
-import 'ustb_byyt_mock.dart';
 import 'ustb_byyt_cookie.dart';
 import 'ustb_byyt_sso.dart';
 
@@ -360,26 +359,6 @@ class _AccountPageState extends State<AccountPage> {
                     trailing: const Icon(Icons.arrow_forward_ios),
                     onTap: () {
                       showSsoLoginDialog(
-                        context,
-                        onLoginSuccess: (method, cookie) {
-                          _currentLoginMethod = method;
-                          _currentLoginCookie = cookie;
-                        },
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: Icon(
-                      Icons.build_circle_outlined,
-                      color: Theme.of(context).colorScheme.secondary,
-                      size: 32,
-                    ),
-                    title: const Text('使用Mock进行测试'),
-                    subtitle: const Text('适用于开发者，将使用离线的模拟数据进行测试'),
-                    trailing: const Icon(Icons.arrow_forward_ios),
-                    onTap: () {
-                      showMockLoginDialog(
                         context,
                         onLoginSuccess: (method, cookie) {
                           _currentLoginMethod = method;

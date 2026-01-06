@@ -151,12 +151,12 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     }
   }
 
-  Future<void> _showLoginDialog(NetServiceType serviceType) async {
+  Future<void> _showLoginDialog() async {
     setState(() => _isLoadingLogin = true);
     try {
       final result = await showDialog<NetUserIntegratedData>(
         context: context,
-        builder: (context) => NetLoginDialog(serviceType: serviceType),
+        builder: (context) => NetLoginDialog(),
       );
 
       if (result != null) {
@@ -478,38 +478,16 @@ class _NetDashboardPageState extends State<NetDashboardPage>
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 24),
-            Row(
-              children: [
-                FilledButton.icon(
-                  onPressed: _isLoadingLogin
-                      ? null
-                      : () => _showLoginDialog(NetServiceType.production),
-                  icon: _isLoadingLogin
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.login),
-                  label: const Text('登录'),
-                ),
-                if (kDebugMode) ...[
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: _isLoadingLogin
-                        ? null
-                        : () => _showLoginDialog(NetServiceType.mock),
-                    icon: _isLoadingLogin
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.build_circle_outlined),
-                    label: const Text('Mock 登录'),
-                  ),
-                ],
-              ],
+            FilledButton.icon(
+              onPressed: _isLoadingLogin ? null : () => _showLoginDialog(),
+              icon: _isLoadingLogin
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.login),
+              label: const Text('登录'),
             ),
           ],
         ),

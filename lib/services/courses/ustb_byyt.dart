@@ -92,7 +92,7 @@ class _CourseSelectionSharedParams {
   }
 }
 
-class UstbByytProdService extends BaseCoursesService {
+class UstbByytService extends BaseCoursesService {
   String? _cookie;
   CourseSelectionState _selectionState = CourseSelectionState();
 
