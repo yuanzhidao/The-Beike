@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import '/services/sync/base.dart';
 import '/services/sync/exceptions.dart';
-import '/services/sync/sync_service.dart';
+import 'convert.dart';
 import '/types/sync.dart';
 import '/utils/meta_info.dart';
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/provider.dart';
-import '../../services/sync/sync_service.dart';
+import '../../services/sync/convert.dart';
 import '../../types/sync.dart';
 import '../../utils/app_bar.dart';
 import '../../utils/meta_info.dart';

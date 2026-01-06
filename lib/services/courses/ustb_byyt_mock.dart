@@ -5,7 +5,7 @@ import '/types/courses.dart';
 import '/services/base.dart';
 import '/services/courses/base.dart';
 import '/services/courses/exceptions.dart';
-import '/services/courses/ustb_byyt.dart';
+import 'convert.dart';
 
 class UstbByytMockService extends BaseCoursesService {
   CourseSelectionState _selectionState = CourseSelectionState();

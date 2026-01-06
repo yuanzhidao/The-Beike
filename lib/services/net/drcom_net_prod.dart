@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '/services/net/drcom_net.dart';
+import 'convert.dart';
 import '/types/net.dart';
 import '/services/net/base.dart';
 import '/services/net/exceptions.dart';

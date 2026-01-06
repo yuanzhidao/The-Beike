@@ -4,7 +4,7 @@ import '/types/courses.dart';
 import '/services/base.dart';
 import '/services/courses/base.dart';
 import '/services/courses/exceptions.dart';
-import '/services/courses/ustb_byyt.dart';
+import 'convert.dart';
 
 class _CourseSelectionSharedParams {
   final TermInfo? termInfo;
