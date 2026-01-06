@@ -10,9 +10,11 @@ import '/services/net/exceptions.dart';
 class DrcomNetService extends BaseNetService {
   DrcomNetService({http.Client? client}) : _client = client ?? http.Client();
 
-  static const String _baseUrl = 'http://zifuwu.ustb.edu.cn:8080';
-  // static const String _baseUrl =
-  //     'https://vpn.ustb.edu.cn/http-8080/77726476706e69737468656265737421a2a713d275603c1e2858c7fb';
+  @override
+  String get defaultBaseUrl => 'http://zifuwu.ustb.edu.cn:8080';
+  // Alternative VPN URL:
+  // 'https://vpn.ustb.edu.cn/http-8080/77726476706e69737468656265737421a2a713d275603c1e2858c7fb';
+
   final http.Client _client;
   String? _cookie;
 
@@ -39,7 +41,7 @@ class DrcomNetService extends BaseNetService {
   }
 
   Uri _buildUri(String path, [Map<String, String>? query]) {
-    return Uri.parse('$_baseUrl/$path').replace(queryParameters: query);
+    return Uri.parse('$baseUrl/$path').replace(queryParameters: query);
   }
 
   @override

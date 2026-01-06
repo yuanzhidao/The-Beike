@@ -96,7 +96,8 @@ class UstbByytService extends BaseCoursesService {
   String? _cookie;
   CourseSelectionState _selectionState = CourseSelectionState();
 
-  static const String _baseUrl = 'https://byyt.ustb.edu.cn';
+  @override
+  String get defaultBaseUrl => 'https://byyt.ustb.edu.cn';
 
   @override
   Future<void> doLogin() async {}
@@ -156,7 +157,7 @@ class UstbByytService extends BaseCoursesService {
 
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/component/online'),
+        Uri.parse('$baseUrl/component/online'),
         headers: _getHeaders(),
       );
 
@@ -187,7 +188,7 @@ class UstbByytService extends BaseCoursesService {
     http.Response response;
     try {
       response = await http.post(
-        Uri.parse('$_baseUrl/user/me'),
+        Uri.parse('$baseUrl/user/me'),
         headers: _getHeaders(),
       );
     } catch (e) {
@@ -227,7 +228,7 @@ class UstbByytService extends BaseCoursesService {
       });
 
       response = await http.post(
-        Uri.parse('$_baseUrl/cjgl/grcjcx/grcjcx'),
+        Uri.parse('$baseUrl/cjgl/grcjcx/grcjcx'),
         headers: {
           ..._getHeaders(),
           'Content-Type': 'application/json', // This endpoint expects JSON
@@ -281,7 +282,7 @@ class UstbByytService extends BaseCoursesService {
     http.Response response;
     try {
       response = await http.post(
-        Uri.parse('$_baseUrl/kscxtj/queryXsksByxhList'),
+        Uri.parse('$baseUrl/kscxtj/queryXsksByxhList'),
         headers: _getHeaders(),
         body:
             'ppylx=1&pkkyx=&pxn=${termInfo.year}&pxq=${termInfo.season}&pageNum=1&pageSize=40',
@@ -329,7 +330,7 @@ class UstbByytService extends BaseCoursesService {
     http.Response response;
     try {
       response = await http.post(
-        Uri.parse('$_baseUrl/Xskbcx/queryXskbcxList'),
+        Uri.parse('$baseUrl/Xskbcx/queryXskbcxList'),
         headers: _getHeaders(),
         body: 'bs=2&xn=${termInfo.year}&xq=${termInfo.season}',
       );
@@ -394,7 +395,7 @@ class UstbByytService extends BaseCoursesService {
     http.Response response;
     try {
       response = await http.post(
-        Uri.parse('$_baseUrl/component/queryKbjg'),
+        Uri.parse('$baseUrl/component/queryKbjg'),
         headers: _getHeaders(),
         body: {
           'xn': termInfo.year,
@@ -451,7 +452,7 @@ class UstbByytService extends BaseCoursesService {
       headers['Rolecode'] = '01';
 
       response = await http.post(
-        Uri.parse('$_baseUrl/Xiaoli/queryMonthList'),
+        Uri.parse('$baseUrl/Xiaoli/queryMonthList'),
         headers: headers,
         body: formData,
       );
@@ -505,7 +506,7 @@ class UstbByytService extends BaseCoursesService {
         final formData = params.toFormData();
 
         response = await http.post(
-          Uri.parse('$_baseUrl/Xsxk/queryKxrw'),
+          Uri.parse('$baseUrl/Xsxk/queryKxrw'),
           headers: _getHeaders(),
           body: formData,
         );
@@ -517,7 +518,7 @@ class UstbByytService extends BaseCoursesService {
         final formData = params.toFormData();
 
         response = await http.post(
-          Uri.parse('$_baseUrl/Xsxk/queryYxkc'),
+          Uri.parse('$baseUrl/Xsxk/queryYxkc'),
           headers: _getHeaders(),
           body: formData,
         );
@@ -599,7 +600,7 @@ class UstbByytService extends BaseCoursesService {
       formData['pageSize'] = '1000';
 
       response = await http.post(
-        Uri.parse('$_baseUrl/Xsxk/queryKxrw'),
+        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
         headers: _getHeaders(),
         body: formData,
       );
@@ -653,7 +654,7 @@ class UstbByytService extends BaseCoursesService {
       final formData = params.toFormData();
 
       response = await http.post(
-        Uri.parse('$_baseUrl/Xsxk/queryYxkc'),
+        Uri.parse('$baseUrl/Xsxk/queryYxkc'),
         headers: _getHeaders(),
         body: formData,
       );
@@ -690,7 +691,7 @@ class UstbByytService extends BaseCoursesService {
     http.Response response;
     try {
       response = await http.post(
-        Uri.parse('$_baseUrl/component/queryXnxq'),
+        Uri.parse('$baseUrl/component/queryXnxq'),
         headers: _getHeaders(),
         body: {'data': 'cTnrJ54+H2bKCT5c1Gq1+w=='},
       );
@@ -750,7 +751,7 @@ class UstbByytService extends BaseCoursesService {
       formData['pageSize'] = '1000';
 
       response = await http.post(
-        Uri.parse('$_baseUrl/Xsxk/queryKxrw'),
+        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
         headers: _getHeaders(),
         body: formData,
       );
@@ -825,7 +826,7 @@ class UstbByytService extends BaseCoursesService {
       formData['pageSize'] = '100';
 
       response = await http.post(
-        Uri.parse('$_baseUrl/Xsxk/addGouwuche'),
+        Uri.parse('$baseUrl/Xsxk/addGouwuche'),
         headers: _getHeaders(),
         body: formData,
       );

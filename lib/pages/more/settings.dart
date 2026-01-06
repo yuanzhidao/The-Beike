@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '/services/provider.dart';
 import '/utils/app_bar.dart';
@@ -25,6 +26,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 16),
           _buildAppearanceSection(),
           _buildDataSection(),
+          if (kDebugMode) _buildServiceSection(),
         ],
       ),
     );
@@ -156,6 +158,107 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Text('清除'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServiceSection() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'API 配置',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '仅供开发人员调试使用。',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildServiceUrlConfig(
+              label: '教务服务',
+              defaultValue: _serviceProvider.coursesService.defaultBaseUrl,
+              currentValue: _serviceProvider.coursesService.baseUrl,
+              onChanged: (value) {
+                _serviceProvider.coursesService.baseUrl = value;
+                _serviceProvider.saveServiceSettings();
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildServiceUrlConfig(
+              label: '校园网管理服务',
+              defaultValue: _serviceProvider.netService.defaultBaseUrl,
+              currentValue: _serviceProvider.netService.baseUrl,
+              onChanged: (value) {
+                _serviceProvider.netService.baseUrl = value;
+                _serviceProvider.saveServiceSettings();
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildServiceUrlConfig(
+              label: '同步服务',
+              defaultValue: _serviceProvider.syncService.defaultBaseUrl,
+              currentValue: _serviceProvider.syncService.baseUrl,
+              onChanged: (value) {
+                _serviceProvider.syncService.baseUrl = value;
+                _serviceProvider.saveServiceSettings();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceUrlConfig({
+    required String label,
+    required String defaultValue,
+    required String currentValue,
+    required ValueChanged<String> onChanged,
+  }) {
+    final controller = TextEditingController(text: currentValue);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodyLarge),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                decoration: InputDecoration(border: const OutlineInputBorder()),
+                onSubmitted: (value) {
+                  final newUrl = value.trim().isEmpty
+                      ? defaultValue
+                      : value.trim();
+                  onChanged(newUrl);
+                  setState(() {});
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: '恢复默认',
+              onPressed: () {
+                controller.clear();
+                onChanged(defaultValue);
+                setState(() {});
+              },
+            ),
+          ],
         ),
       ],
     );

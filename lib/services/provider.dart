@@ -10,6 +10,7 @@ import '/services/sync/base.dart';
 import '/services/sync/sync_service.dart';
 import '/types/courses.dart';
 import '/types/sync.dart';
+import '/types/preferences.dart';
 
 class ServiceProvider extends ChangeNotifier {
   // Course Service
@@ -46,12 +47,60 @@ class ServiceProvider extends ChangeNotifier {
   Future<void> initializeServices() async {
     await _storeService.initialize();
 
+    // Load and restore service baseUrl settings
+    await _loadServiceSettings();
+
     // Try to restore login from cache after store service is initialized
     await _tryAutoLogin();
 
     // Try to load curriculum data after login
     if (coursesService.isOnline) {
       await _loadCurriculumData();
+    }
+  }
+
+  Future<void> _loadServiceSettings() async {
+    try {
+      final settingsPreference = storeService
+          .getPref<ServiceSettingsPreference>(
+            "service_settings",
+            ServiceSettingsPreference.fromJson,
+          );
+
+      if (settingsPreference != null) {
+        if (settingsPreference.coursesBaseUrl != null) {
+          _coursesService.baseUrl = settingsPreference.coursesBaseUrl!;
+        }
+        if (settingsPreference.netBaseUrl != null) {
+          _netService.baseUrl = settingsPreference.netBaseUrl!;
+        }
+        if (settingsPreference.syncBaseUrl != null) {
+          _syncService.baseUrl = settingsPreference.syncBaseUrl!;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('Failed to load service settings: $e');
+    }
+  }
+
+  Future<void> saveServiceSettings() async {
+    try {
+      final settingsPreference = ServiceSettingsPreference(
+        coursesBaseUrl:
+            _coursesService.baseUrl == _coursesService.defaultBaseUrl
+            ? null
+            : _coursesService.baseUrl,
+        netBaseUrl: _netService.baseUrl == _netService.defaultBaseUrl
+            ? null
+            : _netService.baseUrl,
+        syncBaseUrl: _syncService.baseUrl == _syncService.defaultBaseUrl
+            ? null
+            : _syncService.baseUrl,
+      );
+      storeService.putPref("service_settings", settingsPreference);
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) print('Failed to save service settings: $e');
     }
   }
 

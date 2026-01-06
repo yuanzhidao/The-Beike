@@ -221,3 +221,27 @@ class AnnouncementReadMap extends BaseDataClass {
   factory AnnouncementReadMap.fromJson(Map<String, dynamic> json) =>
       _$AnnouncementReadMapFromJson(json);
 }
+
+@JsonSerializable()
+class ServiceSettingsPreference extends BaseDataClass {
+  final String? coursesBaseUrl;
+  final String? netBaseUrl;
+  final String? syncBaseUrl;
+
+  ServiceSettingsPreference({
+    this.coursesBaseUrl,
+    this.netBaseUrl,
+    this.syncBaseUrl,
+  });
+
+  @override
+  Map<String, dynamic> getEssentials() => {
+    'coursesBaseUrl': coursesBaseUrl,
+    'netBaseUrl': netBaseUrl,
+    'syncBaseUrl': syncBaseUrl,
+  };
+
+  Map<String, dynamic> toJson() => _$ServiceSettingsPreferenceToJson(this);
+  factory ServiceSettingsPreference.fromJson(Map<String, dynamic> json) =>
+      _$ServiceSettingsPreferenceFromJson(json);
+}

@@ -8,7 +8,9 @@ import '/types/sync.dart';
 import '/utils/meta_info.dart';
 
 class SyncService extends BaseSyncService {
-  String get baseUrl => 'https://thebeike.cn/api';
+  @override
+  String get defaultBaseUrl => 'https://thebeike.cn/api';
+
   String get userAgent => 'TheBeike-GUI/${MetaInfo.instance.appVersion}';
 
   @override

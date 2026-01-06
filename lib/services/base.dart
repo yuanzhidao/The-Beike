@@ -17,6 +17,15 @@ mixin BaseService {
   bool get isPending => _status == ServiceStatus.pending;
   bool get hasError => _status == ServiceStatus.error;
 
+  String? _baseUrl;
+
+  String get defaultBaseUrl => '';
+  String get baseUrl => _baseUrl ?? defaultBaseUrl;
+
+  set baseUrl(String url) {
+    _baseUrl = url;
+  }
+
   void setStatus(ServiceStatus status, [String? errorMessage]) {
     _status = status;
     _errorMessage = errorMessage;

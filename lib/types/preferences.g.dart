@@ -108,3 +108,28 @@ Map<String, dynamic> _$AnnouncementReadMapToJson(
     instance.readTimestamp,
   ),
 };
+
+ServiceSettingsPreference _$ServiceSettingsPreferenceFromJson(
+  Map<String, dynamic> json,
+) =>
+    ServiceSettingsPreference(
+        coursesBaseUrl: json['coursesBaseUrl'] as String?,
+        netBaseUrl: json['netBaseUrl'] as String?,
+        syncBaseUrl: json['syncBaseUrl'] as String?,
+      )
+      ..$lastUpdateTime = _$JsonConverterFromJson<String, DateTime>(
+        json[r'$lastUpdateTime'],
+        const UTCConverter().fromJson,
+      );
+
+Map<String, dynamic> _$ServiceSettingsPreferenceToJson(
+  ServiceSettingsPreference instance,
+) => <String, dynamic>{
+  r'$lastUpdateTime': _$JsonConverterToJson<String, DateTime>(
+    instance.$lastUpdateTime,
+    const UTCConverter().toJson,
+  ),
+  'coursesBaseUrl': instance.coursesBaseUrl,
+  'netBaseUrl': instance.netBaseUrl,
+  'syncBaseUrl': instance.syncBaseUrl,
+};
