@@ -167,9 +167,11 @@ class CurriculumSettings extends BaseDataClass {
     return requiredDays;
   }
 
-  Map<String, dynamic> toJson() => _$CurriculumSettingsToJson(this);
   factory CurriculumSettings.fromJson(Map<String, dynamic> json) =>
       _$CurriculumSettingsFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$CurriculumSettingsToJson(this);
 }
 
 @JsonSerializable()
@@ -185,7 +187,69 @@ class AppSettings extends BaseDataClass {
     themeMode: ThemeMode.system,
   );
 
-  Map<String, dynamic> toJson() => _$AppSettingsToJson(this);
   factory AppSettings.fromJson(Map<String, dynamic> json) =>
       _$AppSettingsFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$AppSettingsToJson(this);
+}
+
+@JsonSerializable()
+class AnnouncementReadMap extends BaseDataClass {
+  @JsonKey(fromJson: _readTimestampFromJson, toJson: _readTimestampToJson)
+  Map<String, DateTime> readTimestamp;
+
+  AnnouncementReadMap({required this.readTimestamp});
+
+  @override
+  Map<String, dynamic> getEssentials() => {'readTimestamp': readTimestamp};
+
+  static final AnnouncementReadMap defaultMap = AnnouncementReadMap(
+    readTimestamp: {},
+  );
+
+  // JSON converters for DateTime
+  static Map<String, DateTime> _readTimestampFromJson(
+    Map<String, dynamic> json,
+  ) {
+    return json.map(
+      (key, value) => MapEntry(key, DateTime.parse(value as String)),
+    );
+  }
+
+  static Map<String, dynamic> _readTimestampToJson(Map<String, DateTime> map) {
+    return map.map((key, value) => MapEntry(key, value.toIso8601String()));
+  }
+
+  factory AnnouncementReadMap.fromJson(Map<String, dynamic> json) =>
+      _$AnnouncementReadMapFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$AnnouncementReadMapToJson(this);
+}
+
+@JsonSerializable()
+class ServiceSettingsPreference extends BaseDataClass {
+  final String? coursesBaseUrl;
+  final String? netBaseUrl;
+  final String? syncBaseUrl;
+
+  ServiceSettingsPreference({
+    this.coursesBaseUrl,
+    this.netBaseUrl,
+    this.syncBaseUrl,
+  });
+
+  @override
+  Map<String, dynamic> getEssentials() => {
+    'coursesBaseUrl': coursesBaseUrl,
+    'netBaseUrl': netBaseUrl,
+    'syncBaseUrl': syncBaseUrl,
+  };
+
+  factory ServiceSettingsPreference.fromJson(Map<String, dynamic> json) =>
+      _$ServiceSettingsPreferenceFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ServiceSettingsPreferenceToJson(this);
 }

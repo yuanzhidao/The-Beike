@@ -6,14 +6,14 @@ import '/types/base.dart';
 import 'base.dart';
 
 class GeneralStoreService extends BaseStoreService {
-  static const String _storeDir = 'store';
+  static const String _configDir = 'config';
   static const String _prefDir = 'pref';
 
   late final String _rootPath;
-  late final Directory _storeDirectory;
+  late final Directory _configDirectory;
   late final Directory _prefDirectory;
 
-  final Map<String, BaseDataClass> _storeMemory = {};
+  final Map<String, BaseDataClass> _configMemory = {};
   final Map<String, BaseDataClass> _prefMemory = {};
 
   bool _initialized = false;
@@ -26,10 +26,10 @@ class GeneralStoreService extends BaseStoreService {
       final rootDir = await getApplicationSupportDirectory();
       _rootPath = rootDir.path;
 
-      _storeDirectory = Directory('$_rootPath/$_storeDir');
+      _configDirectory = Directory('$_rootPath/$_configDir');
       _prefDirectory = Directory('$_rootPath/$_prefDir');
 
-      await _storeDirectory.create(recursive: true);
+      await _configDirectory.create(recursive: true);
       await _prefDirectory.create(recursive: true);
 
       _initialized = true;
@@ -45,15 +45,15 @@ class GeneralStoreService extends BaseStoreService {
     }
   }
 
-  String _getCacheFilePath(String key) {
-    return '${_storeDirectory.path}/$key.json';
+  // Private Helpers
+
+  String _getConfigFilePath(String key) {
+    return '${_configDirectory.path}/$key.json';
   }
 
   String _getPrefFilePath(String key) {
     return '${_prefDirectory.path}/$key.json';
   }
-
-  // Private Helpers
 
   bool _has(
     String key,
@@ -74,15 +74,12 @@ class GeneralStoreService extends BaseStoreService {
     String key,
     T value,
     Map<String, BaseDataClass> memory,
-    String Function(String) pathProvider, {
-    bool updateTime = false,
-  }) {
+    String Function(String) pathProvider,
+  ) {
     ensureInitialized();
 
     try {
-      if (updateTime) {
-        value.updateLastUpdateTime();
-      }
+      value.updateLastUpdateTime();
 
       final jsonData = value.toJson();
       final file = File(pathProvider(key));
@@ -168,30 +165,30 @@ class GeneralStoreService extends BaseStoreService {
   // Implementations
 
   @override
-  bool hasStoreKey(String key) => _has(key, _storeMemory, _getCacheFilePath);
+  bool hasConfigKey(String key) => _has(key, _configMemory, _getConfigFilePath);
 
   @override
-  bool putStore<T extends BaseDataClass>(String key, T value) =>
-      _put(key, value, _storeMemory, _getCacheFilePath, updateTime: true);
+  bool putConfig<T extends BaseDataClass>(String key, T value) =>
+      _put(key, value, _configMemory, _getConfigFilePath);
 
   @override
-  T? getStore<T extends BaseDataClass>(
+  T? getConfig<T extends BaseDataClass>(
     String key,
     T Function(Map<String, dynamic>) factory,
-  ) => _get(key, factory, _storeMemory, _getCacheFilePath);
+  ) => _get(key, factory, _configMemory, _getConfigFilePath);
 
   @override
-  void delStore(String key) => _del(key, _storeMemory, _getCacheFilePath);
+  void delConfig(String key) => _del(key, _configMemory, _getConfigFilePath);
 
   @override
-  void delAllStore() => _delAll(_storeDirectory, _storeMemory);
+  void delAllConfig() => _delAll(_configDirectory, _configMemory);
 
   @override
   bool hasPrefKey(String key) => _has(key, _prefMemory, _getPrefFilePath);
 
   @override
   bool putPref<T extends BaseDataClass>(String key, T value) =>
-      _put(key, value, _prefMemory, _getPrefFilePath, updateTime: true);
+      _put(key, value, _prefMemory, _getPrefFilePath);
 
   @override
   T? getPref<T extends BaseDataClass>(
@@ -203,5 +200,56 @@ class GeneralStoreService extends BaseStoreService {
   void delPref(String key) => _del(key, _prefMemory, _getPrefFilePath);
 
   @override
-  void delAllPref() => _delAll(_prefDirectory, _prefMemory);
+  void delAllPref() {
+    _delAll(_prefDirectory, _prefMemory);
+  }
+
+  @override
+  Map<String, dynamic> getAllConfigs() {
+    ensureInitialized();
+    final configs = <String, dynamic>{};
+
+    try {
+      final files = _configDirectory.listSync();
+      for (final file in files) {
+        if (file is File && file.path.endsWith('.json')) {
+          final filename = file.uri.pathSegments.last;
+          final key = filename.substring(
+            0,
+            filename.length - 5,
+          ); // remove .json
+          try {
+            final content = file.readAsStringSync();
+            final jsonContent = json.decode(content);
+            configs[key] = jsonContent;
+          } catch (e) {
+            // Ignore bad files
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+    return configs;
+  }
+
+  @override
+  void updateConfigs(Map<String, dynamic> configs) {
+    ensureInitialized();
+
+    for (final entry in configs.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      try {
+        final file = File(_getConfigFilePath(key));
+        file.writeAsStringSync(json.encode(value));
+
+        // Invalidate memory cache as we updated the file
+        _configMemory.remove(key);
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+  }
 }

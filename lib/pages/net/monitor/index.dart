@@ -4,10 +4,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '/services/provider.dart';
 import '/types/net.dart';
 import '/utils/app_bar.dart';
 import '/utils/page_mixins.dart';
+import '/utils/sync_embeded.dart';
 import 'dial.dart';
 
 class NetMonitorPage extends StatefulWidget {
@@ -80,7 +80,7 @@ class _NetMonitorPageState extends State<NetMonitorPage>
     try {
       // Get the cached credentials
       final cachedNetData = serviceProvider.storeService
-          .getStore<NetUserIntegratedData>(
+          .getConfig<NetUserIntegratedData>(
             "net_account_data",
             NetUserIntegratedData.fromJson,
           );
@@ -340,23 +340,25 @@ class _NetMonitorPageState extends State<NetMonitorPage>
         ],
       ),
       endDrawer: const Drawer(child: NetDialDrawer()),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('概览', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            _buildNetworkStatusCard(),
-            const SizedBox(height: 16),
-            _buildRealtimeUsageCard(),
-            if (_usageHistory.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text('实时图表', style: Theme.of(context).textTheme.titleLarge),
+      body: SyncPowered(
+        childBuilder: (context) => SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('概览', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              _buildNetworkStatusCard(),
               const SizedBox(height: 16),
-              _buildHistoryChart(),
+              _buildRealtimeUsageCard(),
+              if (_usageHistory.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text('实时图表', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 16),
+                _buildHistoryChart(),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -373,9 +375,7 @@ class _NetMonitorPageState extends State<NetMonitorPage>
               message: '如需切换账号，请在自助服务面板中重新登录',
               verticalOffset: 8,
               child: Text(
-                serviceProvider.currentNetServiceType == NetServiceType.mock
-                    ? '当前正使用 Mock 测试数据'
-                    : '当前监测账号：${_cachedUsername!}',
+                '当前监测账号：${_cachedUsername!}',
                 style: TextStyle(fontSize: 13, color: Colors.grey[500]),
               ),
             ),

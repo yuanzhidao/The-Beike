@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import '/types/courses.dart';
 import '/services/base.dart';
 
-abstract class BaseCoursesService extends BaseService {
+abstract class BaseCoursesService with BaseService {
   static const int heartbeatInterval = 300;
   Timer? _heartbeatTimer;
   DateTime? _lastHeartbeatTime;
@@ -22,6 +22,8 @@ abstract class BaseCoursesService extends BaseService {
   // Data Methods
 
   Future<List<CourseGradeItem>> getGrades();
+
+  Future<List<ExamInfo>> getExams(TermInfo termInfo);
 
   Future<List<ClassItem>> getCurriculum(TermInfo termInfo);
 
@@ -46,7 +48,8 @@ abstract class BaseCoursesService extends BaseService {
 
   Future<bool> sendCourseSelection(TermInfo termInfo, CourseInfo courseInfo);
 
-  @override
+  Future<bool> sendCourseDeselection(TermInfo termInfo, CourseInfo courseInfo);
+
   Future<void> login() async {
     await doLogin();
     if (isOnline) {
@@ -57,7 +60,6 @@ abstract class BaseCoursesService extends BaseService {
     }
   }
 
-  @override
   Future<void> logout() async {
     stopHeartbeat();
     if (kDebugMode) {

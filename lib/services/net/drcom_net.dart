@@ -1,207 +1,272 @@
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
-import '/services/net/exceptions.dart';
+import 'package:http/http.dart' as http;
+import '/services/net/convert.dart';
 import '/types/net.dart';
+import '/services/net/base.dart';
+import '/services/net/exceptions.dart';
 
-extension LoginRequirementsExtension on LoginRequirements {
-  static final RegExp checkCodeRegex = RegExp(
-    r'var\s*checkcode\s*=\s*"(\w+)"',
-    caseSensitive: false,
-  );
-  static final RegExp tryTimesRegex = RegExp(
-    r'var\s*trytimes\s*=\s*"(\w+|null)"',
-    caseSensitive: false,
-  );
-  static final RegExp tryTimesThresholdRegex = RegExp(
-    r'if\s*\(parseInt\(trytimes\)\s*>=\s*(\d+)\s*\)',
-    caseSensitive: false,
-  );
+class DrcomNetService extends BaseNetService {
+  DrcomNetService({http.Client? client}) : _client = client ?? http.Client();
 
-  static LoginRequirements parse(String html) {
-    final checkCodeMatch = checkCodeRegex.firstMatch(html);
-    final tryTimesMatch = tryTimesRegex.firstMatch(html);
-    final tryTimesThresholdMatch = tryTimesThresholdRegex.firstMatch(html);
+  @override
+  String get defaultBaseUrl => 'http://zifuwu.ustb.edu.cn:8080';
+  // Alternative VPN URL:
+  // 'https://vpn.ustb.edu.cn/http-8080/77726476706e69737468656265737421a2a713d275603c1e2858c7fb';
 
-    final checkCode = checkCodeMatch?.group(1)?.trim();
+  final http.Client _client;
+  String? _cookie;
 
-    if (checkCode == null || checkCode.isEmpty) {
-      throw const NetServiceException('Failed to parse default check code');
+  Map<String, String> _buildHeaders({bool includeFormContentType = false}) {
+    final headers = <String, String>{
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    };
+    if (includeFormContentType) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
+    if (_cookie != null && _cookie!.isNotEmpty) {
+      headers['Cookie'] = _cookie!;
+    }
+    return headers;
+  }
 
-    final tryTimesStr = tryTimesMatch?.group(1)?.trim() ?? '0';
-    final tryTimesThresholdStr =
-        tryTimesThresholdMatch?.group(1)?.trim() ?? '3';
+  void _updateCookie(http.Response response) {
+    final setCookie = response.headers['set-cookie'];
+    if (setCookie != null && setCookie.isNotEmpty) {
+      _cookie = setCookie.split(';').first;
+    }
+  }
 
-    final tryTimes = int.tryParse(tryTimesStr) ?? 0;
-    final tryTimesThreshold = int.tryParse(tryTimesThresholdStr) ?? 3;
+  Uri _buildUri(String path, [Map<String, String>? query]) {
+    return Uri.parse('$baseUrl/$path').replace(queryParameters: query);
+  }
 
-    return LoginRequirements(
-      checkCode: checkCode,
-      tryTimes: tryTimes,
-      tryTimesThreshold: tryTimesThreshold,
+  @override
+  Future<LoginRequirements> doGetLoginRequirements() async {
+    final response = await _client.get(
+      _buildUri('nav_login'),
+      headers: _buildHeaders(),
     );
+    NetServiceException.raiseForStatus(response.statusCode);
+    _updateCookie(response);
+    await getCodeImage(); // This request is to make the session valid
+    return LoginRequirementsExtension.parse(response.body);
   }
-}
 
-extension NetUserInfoExtension on NetUserInfo {
-  static NetUserInfo parse(Map<String, dynamic> data) {
-    return NetUserInfo(
-      account: data['welcome'] ?? '',
-      subscription: data['service'] ?? '',
-      status: data['status'] ?? '',
-      leftFlow: data['leftFlow'],
-      leftTime: data['leftTime'],
-      leftMoney: data['leftmoeny'],
-      overDate: data['overdate'],
-      onlineState: data['onlinestate'],
+  @override
+  Future<void> doLogin({
+    required String username,
+    required String passwordMd5,
+    required String checkCode,
+    String? extraCode,
+  }) async {
+    if (username.isEmpty) {
+      throw const NetServiceException('Missing username');
+    }
+    if (passwordMd5.isEmpty) {
+      throw const NetServiceException('Missing password');
+    }
+
+    final response = await _client.post(
+      _buildUri('LoginAction.action'),
+      headers: _buildHeaders(includeFormContentType: true),
+      body: {
+        'account': username,
+        'password': passwordMd5,
+        'code': extraCode ?? '',
+        'checkcode': checkCode,
+        'Submit': 'Login',
+      },
     );
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+    _updateCookie(response);
+    if (!response.body.contains('class="account"')) {
+      throw const NetServiceBadResponse('Unexpected login response');
+    }
   }
-}
 
-extension MacDeviceExtension on MacDevice {
-  static final nameAndMacRegExp = RegExp(
-    r'<input[^>]*type\s*=\s*"text"[^>]*value\s*=\s*"([^"]*)"',
-    caseSensitive: false,
-  );
-  static final macRegExp = RegExp(
-    r'<input[^>]*name\s*=\s*"macs"[^>]*value\s*=\s*"([^"]+)"',
-    caseSensitive: false,
-  );
-
-  static List<MacDevice> parse(String html) {
-    final deviceNames = <String>[];
-    for (final match in nameAndMacRegExp.allMatches(html)) {
-      final fullTag = match.group(0) ?? '';
-      if (macRegExp.hasMatch(fullTag)) {
-        continue;
-      }
-      deviceNames.add((match.group(1) ?? '').trim());
-    }
-
-    final devices = <MacDevice>[];
-    var index = 0;
-    for (final match in macRegExp.allMatches(html)) {
-      final macValue = match.group(1) ?? '';
-      final name = index < deviceNames.length ? deviceNames[index] : '';
-      devices.add(MacDevice(name: name, mac: macValue));
-      index++;
-    }
-
-    return devices;
-  }
-}
-
-extension MonthlyBillExtension on MonthlyBill {
-  static final tbodyRegExp = RegExp(
-    r'<tbody[^>]*>(.*?)</tbody>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-  static final rowRegExp = RegExp(
-    r'<tr[^>]*>(.*?)</tr>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-  static final cellRegExp = RegExp(
-    r'<td[^>]*>(.*?)</td>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-
-  static List<MonthlyBill> parse(String html, int year) {
-    // Match tbody
-    final tbodyMatch = tbodyRegExp.firstMatch(html);
-
-    if (tbodyMatch == null) {
-      return const [];
-    }
-
-    // Match table rows
-    final tbodyContent = tbodyMatch.group(1) ?? '';
-    final rowMatches = rowRegExp.allMatches(tbodyContent);
-
-    final bills = <MonthlyBill>[];
-
-    for (final row in rowMatches) {
-      final cells = cellRegExp
-          .allMatches(row.group(1) ?? '')
-          .map((cell) => _normalizeCell(cell.group(1) ?? ''))
-          .toList();
-
-      if (cells.length != 8) {
-        continue;
-      }
-
-      try {
-        final startDate = DateTime.parse(cells[0]);
-        final endDate = DateTime.parse(cells[1]);
-        final packageName = cells[2];
-        final monthlyFee = _parseNumeric(cells[3]);
-        final usageFee = _parseNumeric(cells[4]);
-        final durationMinutes = _parseNumeric(cells[5]);
-        final flowMb = _parseNumeric(cells[6]);
-        final createTime = DateTime.parse(cells[7]);
-
-        bills.add(
-          MonthlyBill(
-            startDate: startDate,
-            endDate: endDate,
-            packageName: packageName,
-            monthlyFee: monthlyFee,
-            usageFee: usageFee,
-            usageDurationMinutes: durationMinutes,
-            usageFlowMb: flowMb,
-            createTime: createTime,
-          ),
-        );
-      } catch (e) {
-        if (kDebugMode) {
-          print('Failed to parse monthly bill row: $e');
-        }
+  @override
+  Future<void> doLogout() async {
+    final response = await _client.get(
+      _buildUri('LogoutAction.action'),
+      headers: _buildHeaders(),
+    );
+    if (response.statusCode >= 400) {
+      if (kDebugMode) {
+        print('Net service logout failed: ${response.statusCode}');
       }
     }
-
-    return bills;
+    _cookie = null;
   }
 
-  static String _normalizeCell(String input) {
-    final withoutTags = input.replaceAll(RegExp(r'<[^>]*>'), '');
-    return withoutTags.replaceAll('&nbsp;', ' ').trim();
+  @override
+  Future<Uint8List> getCodeImage() async {
+    final randomNum = Random().nextDouble().toString();
+    final response = await _client.get(
+      _buildUri('RandomCodeAction.action', {'randomNum': randomNum}),
+      headers: _buildHeaders(),
+    );
+    NetServiceException.raiseForStatus(response.statusCode);
+    _updateCookie(response);
+    return response.bodyBytes;
   }
 
-  static double _parseNumeric(String input) {
-    final cleaned = input.replaceAll(RegExp(r'[^0-9\.-]'), '');
-    if (cleaned.isEmpty) {
-      return 0;
+  @override
+  Future<NetUserInfo> getUser() async {
+    if (isOffline) {
+      throw const NetServiceOffline();
     }
-    return double.tryParse(cleaned) ?? 0;
+
+    try {
+      final jsonStr = await _loadUserInfoJson();
+      return NetUserInfoExtension.parse(jsonStr);
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to load net user info', e);
+    }
   }
-}
 
-extension RealtimeUsageExtension on RealtimeUsage {
-  static final v4Regex = RegExp(r'"v4"\s*:\s*([\d.]+)', caseSensitive: false);
-  static final v6Regex = RegExp(r'"v6"\s*:\s*([\d.]+)', caseSensitive: false);
+  @override
+  Future<void> doRetainMacs(List<String> normalizedMacs) async {
+    // Drcom's f**king API only supports passing the MACs you want to retain
+    // to archive the effect of unbinding other MACs, LOL. 😝 What a shit!
+    final response = await _client.post(
+      _buildUri('nav_unbindMACAction.action'),
+      headers: _buildHeaders(includeFormContentType: true),
+      body: {'macStr': normalizedMacs.join(';'), 'Submit': '解绑'},
+    );
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+  }
 
-  static RealtimeUsage parse(String jsStr) {
-    final v4Match = v4Regex.firstMatch(jsStr);
-    final v6Match = v6Regex.firstMatch(jsStr);
+  @override
+  Future<List<MacDevice>> getBoundedMac() async {
+    final html = await () async {
+      final response = await _client.get(
+        _buildUri('nav_unBandMacJsp'),
+        headers: _buildHeaders(),
+      );
+      NetServiceException.raiseForStatus(response.statusCode, setOffline);
+      return response.body;
+    }();
+    return MacDeviceExtension.parse(html);
+  }
 
-    final v4Str = v4Match?.group(1)?.trim();
-    final v6Str = v6Match?.group(1)?.trim();
-
-    if (v4Str == null || v4Str.isEmpty) {
-      throw const NetServiceException('Failed to parse v4 usage');
+  Future<Map<String, dynamic>> _loadUserInfoJson({String? macAddress}) async {
+    final query = <String, String>{
+      't': Random().nextDouble().toStringAsFixed(6),
+    };
+    if (macAddress != null && macAddress.isNotEmpty) {
+      query['macStr'] = macAddress;
     }
-    if (v6Str == null || v6Str.isEmpty) {
-      throw const NetServiceException('Failed to parse v6 usage');
+    query['Submit'] = '解绑';
+
+    final response = await _client.get(
+      _buildUri('refreshaccount', query),
+      headers: _buildHeaders(),
+    );
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+    _updateCookie(response);
+    try {
+      final decoded = json.decode(response.body);
+      return decoded['note'] as Map<String, dynamic>;
+    } catch (e) {
+      if (e is NetServiceException) rethrow;
+      throw NetServiceBadResponse('Failed to parse user info', e);
+    }
+  }
+
+  @override
+  Future<List<MonthlyBill>> getMonthlyBill({required int year}) async {
+    if (year <= 0) {
+      throw const NetServiceException('Invalid year');
+    }
+    if (isOffline) {
+      throw const NetServiceOffline();
     }
 
-    final v4 = double.tryParse(v4Str);
-    final v6 = double.tryParse(v6Str);
+    try {
+      final response = await _client.post(
+        _buildUri('MonthPayAction.action'),
+        headers: _buildHeaders(includeFormContentType: true),
+        body: {'type': '1', 'year': year.toString()},
+      );
+      NetServiceException.raiseForStatus(response.statusCode, setOffline);
+      _updateCookie(response);
+      final html = response.body;
+      return MonthlyBillExtension.parse(html, year);
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to load net monthly bill', e);
+    }
+  }
 
-    if (v4 == null || v6 == null) {
-      throw const NetServiceException('Failed to parse usage values');
+  @override
+  Future<void> doChangePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
     }
 
-    return RealtimeUsage(v4: v4, v6: v6, time: DateTime.now());
+    final response = await _client.post(
+      _buildUri('ChangePswAction.action'),
+      headers: _buildHeaders(includeFormContentType: true),
+      body: {
+        'user.flduserpassword': oldPassword,
+        'user.fldmd5hehai': newPassword,
+        'user.fldextend': newPassword,
+        'Submit': 'Submit',
+      },
+    );
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+
+    final responseText = response.body.toLowerCase();
+    if (!responseText.contains('修改成功') &&
+        !responseText.contains('modified successfully')) {
+      throw const NetServiceBadResponse(
+        'Password changing response may failed',
+      );
+    }
+  }
+
+  @override
+  @override
+  Future<RealtimeUsage> getRealtimeUsage(
+    String username, {
+    required bool viaVpn,
+  }) async {
+    try {
+      const usageServerUrl = 'http://202.204.48.82:801';
+      const usageServerElib =
+          'https://elib.ustb.edu.cn/http-801/77726476706e69737468656265737421a2a713d275603c1e2a50c7face';
+      final randomNum = Random().nextInt(1000000).toString();
+      final base = viaVpn ? usageServerElib : usageServerUrl;
+      final uri = Uri.parse(
+        '$base/eportal/portal/visitor/loadUserFlow'
+        '?callback=dr1003'
+        '&account=$username'
+        '&jsVersion=4.1'
+        '&v=$randomNum'
+        '&lang=zh',
+      );
+
+      final response = await _client.get(uri, headers: _buildHeaders());
+      NetServiceException.raiseForStatus(response.statusCode);
+      return RealtimeUsageExtension.parse(response.body);
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to load realtime usage', e);
+    }
+  }
+
+  void dispose() {
+    _client.close();
   }
 }

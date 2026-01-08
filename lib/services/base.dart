@@ -2,11 +2,11 @@ enum ServiceStatus {
   online, // Logged in
   offline, // Not logged in
   pending, // Transaction in progress
-  errorAuth, // Authentication error (like expired token)
-  errorNetwork, // Network error
+  error, // Error occurred
 }
 
-abstract class BaseService {
+/// A mixin that provides common service status management functionality.
+mixin BaseService {
   ServiceStatus _status = ServiceStatus.offline;
   String? _errorMessage;
 
@@ -15,9 +15,16 @@ abstract class BaseService {
   bool get isOnline => _status == ServiceStatus.online;
   bool get isOffline => _status == ServiceStatus.offline;
   bool get isPending => _status == ServiceStatus.pending;
-  bool get hasError =>
-      _status == ServiceStatus.errorAuth ||
-      _status == ServiceStatus.errorNetwork;
+  bool get hasError => _status == ServiceStatus.error;
+
+  String? _baseUrl;
+
+  String get defaultBaseUrl => '';
+  String get baseUrl => _baseUrl ?? defaultBaseUrl;
+
+  set baseUrl(String url) {
+    _baseUrl = url;
+  }
 
   void setStatus(ServiceStatus status, [String? errorMessage]) {
     _status = status;
@@ -37,17 +44,10 @@ abstract class BaseService {
     setStatus(ServiceStatus.pending);
   }
 
-  void setAuthError([String? message]) {
-    setStatus(ServiceStatus.errorAuth, message);
+  void setError([String? message]) {
+    setStatus(ServiceStatus.error, message);
   }
 
-  void setNetworkError([String? message]) {
-    setStatus(ServiceStatus.errorNetwork, message);
-  }
-
-  /// Override this method to handle status changes
+  /// Override this method to handle status changes.
   void onStatusChanged(ServiceStatus status, String? errorMessage) {}
-
-  Future<void> login();
-  Future<void> logout();
 }

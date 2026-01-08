@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,7 +5,9 @@ import '/services/provider.dart';
 import '/services/sync/exceptions.dart';
 import '/types/sync.dart';
 import '/utils/app_bar.dart';
+import '/utils/meta_info.dart';
 import 'pairing.dart';
+import 'syncing.dart';
 
 class SyncPage extends StatefulWidget {
   const SyncPage({super.key});
@@ -169,8 +170,8 @@ class _SyncPageState extends State<SyncPage> {
 
     // Device not registered, register automatically
     try {
-      final deviceOs = _getCurrentDeviceOs();
-      final deviceName = await _getDeviceName();
+      final deviceOs = MetaInfo.instance.platformName;
+      final deviceName = MetaInfo.instance.deviceName;
 
       final deviceId = await _serviceProvider.syncService.registerDevice(
         deviceOs: deviceOs,
@@ -187,21 +188,6 @@ class _SyncPageState extends State<SyncPage> {
     } catch (e) {
       _handleError(e);
     }
-  }
-
-  String _getCurrentDeviceOs() {
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isMacOS) return 'mac';
-    if (Platform.isLinux) return 'linux';
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isAndroid) return 'android';
-    return 'unknown';
-  }
-
-  Future<String> _getDeviceName() async {
-    // Simple device name, can be enhanced later
-    final os = _getCurrentDeviceOs();
-    return '$os-device-${DateTime.now().millisecondsSinceEpoch % 10000}';
   }
 
   String _getDeviceOsIcon(String os) {
@@ -264,6 +250,14 @@ class _SyncPageState extends State<SyncPage> {
               ),
             ),
             const SizedBox(height: 8),
+            if (_syncData?.groupId != null) ...[
+              SyncingCard(
+                serviceProvider: _serviceProvider,
+                syncData: _syncData!,
+                onError: _handleError,
+              ),
+              const SizedBox(height: 16),
+            ],
             SyncPairingCard(
               serviceProvider: _serviceProvider,
               onSyncDataChanged: _saveSyncData,
@@ -422,38 +416,8 @@ class _SyncPageState extends State<SyncPage> {
                 ),
               ],
             ),
-            const Divider(height: 24, color: null),
-            Row(
-              children: [
-                Text(
-                  '服务环境',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SegmentedButton<SyncServiceType>(
-                  segments: const [
-                    ButtonSegment(
-                      value: SyncServiceType.dev,
-                      label: Text('开发'),
-                      icon: Icon(Icons.code, size: 16),
-                    ),
-                    ButtonSegment(
-                      value: SyncServiceType.production,
-                      label: Text('生产'),
-                      icon: Icon(Icons.cloud, size: 16),
-                    ),
-                  ],
-                  selected: {_serviceProvider.currentSyncServiceType},
-                  onSelectionChanged: (Set<SyncServiceType> selected) {
-                    _serviceProvider.switchSyncService(selected.first);
-                  },
-                ),
-              ],
-            ),
             if (_syncData?.deviceId != null) ...[
-              const SizedBox(height: 16),
+              const Divider(height: 24, color: null),
               _buildDebugInfoRow(
                 '设备类型',
                 '${_getDeviceOsIcon(_syncData!.deviceOs!)} ${_syncData!.deviceOs}',

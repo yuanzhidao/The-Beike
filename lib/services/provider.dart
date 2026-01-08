@@ -1,42 +1,26 @@
 import 'package:flutter/foundation.dart';
 import '/services/courses/base.dart';
-import '/services/courses/ustb_byyt_mock.dart';
-import '/services/courses/ustb_byyt_prod.dart';
+import '/services/courses/ustb_byyt.dart';
 import '/services/courses/exceptions.dart';
 import '/services/store/base.dart';
 import '/services/store/general.dart';
 import '/services/net/base.dart';
-import '/services/net/drcom_net_mock.dart';
-import '/services/net/drcom_net_prod.dart';
+import '/services/net/drcom_net.dart';
 import '/services/sync/base.dart';
-import '/services/sync/sync_service_dev.dart';
-import '/services/sync/sync_service_prod.dart';
+import '/services/sync/sync_service.dart';
 import '/types/courses.dart';
-
-enum CoursesServiceType { mock, production }
-
-enum NetServiceType { mock, production }
-
-enum SyncServiceType { dev, production }
+import '/types/sync.dart';
+import '/types/preferences.dart';
 
 class ServiceProvider extends ChangeNotifier {
   // Course Service
   late BaseCoursesService _coursesService;
-  CoursesServiceType _currentServiceType = kDebugMode
-      ? CoursesServiceType.mock
-      : CoursesServiceType.production;
 
   // Net Service
   late BaseNetService _netService;
-  NetServiceType _currentNetServiceType = kDebugMode
-      ? NetServiceType.mock
-      : NetServiceType.production;
 
   // Sync Service
   late BaseSyncService _syncService;
-  SyncServiceType _currentSyncServiceType = kDebugMode
-      ? SyncServiceType.dev
-      : SyncServiceType.production;
 
   // Store Service
   late BaseStoreService _storeService;
@@ -46,15 +30,9 @@ class ServiceProvider extends ChangeNotifier {
   static ServiceProvider get instance => _instance;
 
   ServiceProvider._internal() {
-    _coursesService = _currentServiceType == CoursesServiceType.mock
-        ? UstbByytMockService()
-        : UstbByytProdService();
-    _netService = _currentNetServiceType == NetServiceType.mock
-        ? DrcomNetMockService()
-        : DrcomNetProdService();
-    _syncService = _currentSyncServiceType == SyncServiceType.dev
-        ? SyncServiceDev()
-        : SyncServiceProd();
+    _coursesService = UstbByytService();
+    _netService = DrcomNetService();
+    _syncService = SyncService();
     _storeService = GeneralStoreService();
   }
 
@@ -62,16 +40,15 @@ class ServiceProvider extends ChangeNotifier {
 
   BaseNetService get netService => _netService;
 
-  NetServiceType get currentNetServiceType => _currentNetServiceType;
-
   BaseSyncService get syncService => _syncService;
-
-  SyncServiceType get currentSyncServiceType => _currentSyncServiceType;
 
   BaseStoreService get storeService => _storeService;
 
   Future<void> initializeServices() async {
     await _storeService.initialize();
+
+    // Load and restore service baseUrl settings
+    await _loadServiceSettings();
 
     // Try to restore login from cache after store service is initialized
     await _tryAutoLogin();
@@ -82,61 +59,61 @@ class ServiceProvider extends ChangeNotifier {
     }
   }
 
-  /// Switch the courses service to the specified type.
-  /// This method provides a unified way to switch between mock and production services.
-  void switchCoursesService(CoursesServiceType type) {
-    _switchCoursesService(type);
+  Future<void> _loadServiceSettings() async {
+    try {
+      final settingsPreference = storeService
+          .getPref<ServiceSettingsPreference>(
+            "service_settings",
+            ServiceSettingsPreference.fromJson,
+          );
+
+      if (settingsPreference != null) {
+        if (settingsPreference.coursesBaseUrl != null) {
+          _coursesService.baseUrl = settingsPreference.coursesBaseUrl!;
+        }
+        if (settingsPreference.netBaseUrl != null) {
+          _netService.baseUrl = settingsPreference.netBaseUrl!;
+        }
+        if (settingsPreference.syncBaseUrl != null) {
+          _syncService.baseUrl = settingsPreference.syncBaseUrl!;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('Failed to load service settings: $e');
+    }
   }
 
-  void _switchCoursesService(CoursesServiceType type) {
-    if (_currentServiceType == type) return;
-
-    _coursesService = type == CoursesServiceType.mock
-        ? UstbByytMockService()
-        : UstbByytProdService();
-    _currentServiceType = type;
-    notifyListeners();
-  }
-
-  void switchNetService(NetServiceType type) {
-    _switchNetService(type);
-  }
-
-  void _switchNetService(NetServiceType type) {
-    if (_currentNetServiceType == type) return;
-
-    _disposeNetService();
-    _netService = type == NetServiceType.mock
-        ? DrcomNetMockService()
-        : DrcomNetProdService();
-    _currentNetServiceType = type;
-    notifyListeners();
-  }
-
-  void switchSyncService(SyncServiceType type) {
-    _switchSyncService(type);
-  }
-
-  void _switchSyncService(SyncServiceType type) {
-    if (_currentSyncServiceType == type) return;
-
-    _syncService = type == SyncServiceType.dev
-        ? SyncServiceDev()
-        : SyncServiceProd();
-    _currentSyncServiceType = type;
-    notifyListeners();
+  Future<void> saveServiceSettings() async {
+    try {
+      final settingsPreference = ServiceSettingsPreference(
+        coursesBaseUrl:
+            _coursesService.baseUrl == _coursesService.defaultBaseUrl
+            ? null
+            : _coursesService.baseUrl,
+        netBaseUrl: _netService.baseUrl == _netService.defaultBaseUrl
+            ? null
+            : _netService.baseUrl,
+        syncBaseUrl: _syncService.baseUrl == _syncService.defaultBaseUrl
+            ? null
+            : _syncService.baseUrl,
+      );
+      storeService.putPref("service_settings", settingsPreference);
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) print('Failed to save service settings: $e');
+    }
   }
 
   void _disposeNetService() {
-    if (_netService is DrcomNetProdService) {
-      (_netService as DrcomNetProdService).dispose();
+    if (_netService is DrcomNetService) {
+      (_netService as DrcomNetService).dispose();
     }
   }
 
   Future<void> _loadCurriculumData() async {
     try {
       // Check cache
-      final cachedData = storeService.getStore<CurriculumIntegratedData>(
+      final cachedData = storeService.getConfig<CurriculumIntegratedData>(
         "curriculum_data",
         CurriculumIntegratedData.fromJson,
       );
@@ -153,7 +130,7 @@ class ServiceProvider extends ChangeNotifier {
   Future<CurriculumIntegratedData?> getCurriculumData([
     TermInfo? termInfo,
   ]) async {
-    final cachedData = storeService.getStore<CurriculumIntegratedData>(
+    final cachedData = storeService.getConfig<CurriculumIntegratedData>(
       "curriculum_data",
       CurriculumIntegratedData.fromJson,
     );
@@ -204,7 +181,7 @@ class ServiceProvider extends ChangeNotifier {
     );
 
     // Cache the data
-    storeService.putStore<CurriculumIntegratedData>(
+    storeService.putConfig<CurriculumIntegratedData>(
       "curriculum_data",
       integratedData,
     );
@@ -214,19 +191,60 @@ class ServiceProvider extends ChangeNotifier {
 
   //
 
-  Future<void> loginToCoursesService({String? cookie}) async {
-    if (_currentServiceType == CoursesServiceType.production) {
-      if (cookie == null) {
-        throw Exception('Cookie is required for production service login');
+  /// Maybe syncs config if last sync was more than 10 seconds ago.
+  /// Silently ignores any sync errors.
+  Future<void> maybeUpdateConfigAndApplyChanges() async {
+    try {
+      final syncData = _storeService.getPref<SyncDeviceData>(
+        'sync_device',
+        SyncDeviceData.fromJson,
+      );
+
+      if (syncData == null ||
+          syncData.deviceId == null ||
+          syncData.groupId == null) {
+        return; // No sync data available
       }
-      final prodService = coursesService as UstbByytProdService;
-      await prodService.loginWithCookie(cookie);
-      await prodService.login();
-      notifyListeners();
-    } else {
-      await coursesService.login();
-      notifyListeners();
+
+      // Check if last sync was too recent
+      final lastSync = _syncService.lastSyncStatus;
+      if (lastSync != null) {
+        final elapsed = DateTime.now().difference(lastSync.timestamp);
+        if (elapsed.inSeconds < 10) {
+          return; // Too soon, skip update
+        }
+      }
+
+      // Perform the sync
+      final configs = _storeService.getAllConfigs();
+      final newConfigs = await _syncService.update(
+        deviceId: syncData.deviceId!,
+        groupId: syncData.groupId!,
+        config: configs,
+      );
+
+      // Apply new configs if received
+      if (newConfigs != null) {
+        _storeService.updateConfigs(newConfigs);
+      }
+    } catch (e) {
+      // Silently ignore sync errors
+      if (kDebugMode) {
+        print('maybeUpdateConfigAndApplyChanges failed: $e');
+      }
     }
+  }
+
+  //
+
+  Future<void> loginToCoursesService({String? cookie}) async {
+    if (cookie == null) {
+      throw Exception('Cookie is required for service login');
+    }
+    final service = coursesService as UstbByytService;
+    await service.loginWithCookie(cookie);
+    await service.login();
+    notifyListeners();
   }
 
   Future<void> logoutFromCoursesService() async {
@@ -259,7 +277,7 @@ class ServiceProvider extends ChangeNotifier {
   /// Try to restore login from cache on app startup
   Future<void> _tryAutoLogin() async {
     try {
-      final cachedData = _storeService.getStore<UserLoginIntegratedData>(
+      final cachedData = _storeService.getConfig<UserLoginIntegratedData>(
         "course_account_data",
         UserLoginIntegratedData.fromJson,
       );
@@ -269,12 +287,8 @@ class ServiceProvider extends ChangeNotifier {
       final data = cachedData;
       final method = data.method;
 
-      if (method == "mock") {
-        switchCoursesService(CoursesServiceType.mock);
-        await loginToCoursesService();
-      } else if (method == "cookie" || method == "sso") {
+      if (method == "cookie" || method == "sso") {
         if (data.cookie != null && data.user != null) {
-          switchCoursesService(CoursesServiceType.production);
           await loginToCoursesService(cookie: data.cookie!);
           // Get new user info and verify consistency
           final newUserInfo = await coursesService.getUserInfo();

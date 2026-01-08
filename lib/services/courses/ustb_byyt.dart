@@ -1,478 +1,943 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '/types/courses.dart';
+import '/services/base.dart';
+import '/services/courses/base.dart';
+import '/services/courses/exceptions.dart';
+import 'convert.dart';
 
-extension UserInfoUstbByytExtension on UserInfo {
-  static UserInfo parse(Map<String, dynamic> data) {
-    return UserInfo(
-      userName: data['xm'] as String,
-      userNameAlt: data['xm_en'] as String? ?? '',
-      userSchool: data['bmmc'] as String? ?? '',
-      userSchoolAlt: data['bmmc_en'] as String? ?? '',
-      userId: data['yhdm'] as String? ?? '',
-    );
-  }
-}
+class _CourseSelectionSharedParams {
+  final TermInfo? termInfo;
+  final bool isForSubmission;
+  final String? tabId;
+  final String? classId;
+  final String? courseId;
 
-extension CourseGradeItemUstbByytExtension on CourseGradeItem {
-  static CourseGradeItem parse(Map<String, dynamic> data) {
-    return CourseGradeItem(
-      courseId: data['kcdm'] as String? ?? '',
-      courseName: data['kcmc'] as String? ?? '',
-      courseNameAlt: data['kcmc_en'] as String?,
-      termId: data['xnxq'] as String? ?? '',
-      termName: data['xnxqmc'] as String? ?? '',
-      termNameAlt: data['xnxqmcen'] as String? ?? '',
-      type: data['kcxz'] as String? ?? '',
-      category: data['kclb'] as String? ?? '',
-      schoolName: data['yxmc'] as String?,
-      schoolNameAlt: data['yxmc_en'] as String?,
-      makeupStatus: data['bkcx'] as String?,
-      makeupStatusAlt: data['bkcx_en'] as String?,
-      examType: data['khfs'] as String?,
-      hours: double.parse(data['xs']?.toString() ?? '0'),
-      credit: double.parse(data['xf']?.toString() ?? '0'),
-      score: double.parse(data['zpcj']?.toString() ?? '0'),
-    );
-  }
-}
+  const _CourseSelectionSharedParams({
+    this.termInfo,
+    this.isForSubmission = false,
+    this.tabId,
+    this.classId,
+    this.courseId,
+  });
 
-extension ClassItemUstbByytExtension on ClassItem {
-  static ClassItem? parse(Map<String, dynamic> data) {
-    try {
-      final key = data['key'] as String?;
-      final kbxx = data['kbxx'] as String?;
-      // final kbxxEn = data['kbxx_en'] as String?; // 当前暂不支持英文版解析
-
-      if (key == null || kbxx == null || key == 'bz') {
-        // 跳过非正常课程格式或不排课课程
-        return null;
-      }
-
-      // 从 key 解析 day 和 period
-      final keyMatch = RegExp(r'xq(\d+)_jc(\d+)').firstMatch(key);
-      if (keyMatch == null) {
-        return null;
-      }
-
-      final day = int.parse(keyMatch.group(1)!);
-      final period = int.parse(keyMatch.group(2)!);
-
-      // 解析 kbxx 内容
-      final lines = kbxx.split('\n');
-      if (lines.length < 3) {
-        return null;
-      }
-
-      String className = '';
-      String teacherName = '';
-      String weeksText = '';
-      String locationName = '';
-      String periodName = '';
-
-      if (3 <= lines.length && lines.length <= 4) {
-        className = lines[0];
-        teacherName = lines[1];
-        weeksText = lines[2];
-      } else if (lines.length == 5) {
-        className = lines[0];
-        teacherName = lines[1];
-        weeksText = lines[2];
-        locationName = lines[3];
-        periodName = lines[4];
-      } else if (lines.length == 6) {
-        className = "${lines[0]}\n${lines[1]}";
-        teacherName = lines[2];
-        weeksText = lines[3];
-        locationName = lines[4];
-        periodName = lines[5];
-      } else {
-        return null;
-      }
-
-      // 解析周次
-      final weeks = _parseWeeks(weeksText);
-
-      // 从课程名称生成颜色ID（简单哈希）
-      final colorId = className.hashCode % 10;
-
-      return ClassItem(
-        day: day,
-        period: period,
-        weeks: weeks,
-        weeksText: weeksText,
-        className: className,
-        classNameAlt: '',
-        teacherName: teacherName,
-        teacherNameAlt: '',
-        locationName: locationName,
-        locationNameAlt: '',
-        periodName: periodName,
-        periodNameAlt: '',
-        colorId: colorId,
-      );
-    } catch (e) {
-      return null;
-    }
-  }
-
-  static List<int> _parseWeeks(String weeksText) {
-    final weeks = <int>[];
-
-    // 移除"周"字符，保留数字、逗号、横线
-    final cleanText = weeksText.replaceAll('周', '').trim();
-
-    // 按逗号分割不同的周期段
-    final segments = cleanText.split(',');
-
-    for (final segment in segments) {
-      final trimmedSegment = segment.trim();
-      if (trimmedSegment.isEmpty) continue;
-
-      if (trimmedSegment.contains('-')) {
-        // 处理范围，如 "1-8" 或 "9-16"
-        final parts = trimmedSegment.split('-');
-        if (parts.length == 2) {
-          final start = int.tryParse(parts[0].trim());
-          final end = int.tryParse(parts[1].trim());
-          if (start != null && end != null && start <= end) {
-            for (int i = start; i <= end; i++) {
-              weeks.add(i);
-            }
-          }
-        }
-      } else {
-        // 处理单个周次，如 "1" 或 "3"
-        final week = int.tryParse(trimmedSegment);
-        if (week != null) {
-          weeks.add(week);
-        }
-      }
-    }
-
-    // 去重并排序
-    return weeks.toSet().toList()..sort();
-  }
-}
-
-extension ClassPeriodUstbByytExtension on ClassPeriod {
-  static ClassPeriod parse(Map<String, dynamic> data) {
-    return ClassPeriod(
-      termYear: data['xn'] as String? ?? '',
-      termSeason: int.tryParse(data['xq']?.toString() ?? '1') ?? 1,
-      majorId: int.tryParse(data['dj']?.toString() ?? '1') ?? 1,
-      minorId: int.tryParse(data['xj']?.toString() ?? '1') ?? 1,
-      majorName: data['djms'] as String? ?? '',
-      minorName: data['xjms'] as String? ?? '',
-      majorStartTime: data['kskssj'] as String?,
-      majorEndTime: data['ksjssj'] as String?,
-      minorStartTime: data['kssj'] as String? ?? '',
-      minorEndTime: data['jssj'] as String? ?? '',
-    );
-  }
-}
-
-extension CalendarDayUstbByytExtension on CalendarDay {
-  static CalendarDay parse(Map<String, dynamic> data) {
-    final dateParts = (data['RQ'] as String).split('-');
-    final year = int.parse(dateParts[0]);
-    final month = int.parse(dateParts[1]);
-    final day = int.parse(dateParts[2]);
-
-    int weekday = 7;
-    if (data['MON'] != null) {
-      weekday = 1;
-    } else if (data['TUE'] != null || data['TUES'] != null) {
-      weekday = 2;
-    } else if (data['WED'] != null) {
-      weekday = 3;
-    } else if (data['THU'] != null || data['THUR'] != null) {
-      weekday = 4;
-    } else if (data['FRI'] != null) {
-      weekday = 5;
-    } else if (data['SAT'] != null) {
-      weekday = 6;
-    }
-
-    final rawWeekIndex = data['ZC'] as int? ?? -1;
-    final weekIndex = (rawWeekIndex >= 99 || rawWeekIndex <= 0)
-        ? -1
-        : rawWeekIndex;
-
-    return CalendarDay(
-      year: year,
-      month: month,
-      day: day,
-      weekday: weekday,
-      weekIndex: weekIndex,
-    );
-  }
-}
-
-extension TermInfoUstbByytExtension on TermInfo {
-  static TermInfo parse(Map<String, dynamic> data) {
-    return TermInfo(
-      year: data['xn'] as String,
-      season: int.parse(data['xq'].toString()),
-    );
-  }
-}
-
-extension CourseDetailUstbByytExtension on CourseDetail {
-  static CourseDetail parse(Map<String, dynamic> data) {
-    final detailHtml = data['kcxx'] as String?;
-    final detailHtmlAlt = data['kcxx_en'] as String?;
-
-    final parsedDetail = _parseDetailHtml(detailHtml);
-    final parsedDetailAlt = _parseDetailHtml(detailHtmlAlt);
-
-    return CourseDetail(
-      classId: data['id'] as String? ?? '',
-      extraName: data['tyxmmc'] as String?,
-      extraNameAlt: data['tyxmmc_en'] as String?,
-      detailHtml: detailHtml,
-      detailHtmlAlt: detailHtmlAlt,
-      detailTeacherId: parsedDetail['teacherId'],
-      detailTeacherName: parsedDetail['teacherName'],
-      detailTeacherNameAlt: parsedDetailAlt['teacherName'],
-      detailSchedule: parsedDetail['schedule'] as List<String>?,
-      detailScheduleAlt: parsedDetailAlt['schedule'] as List<String>?,
-      detailClasses: parsedDetail['classes'],
-      detailClassesAlt: parsedDetailAlt['classes'],
-      detailTarget: parsedDetail['target'] as List<String>?,
-      detailTargetAlt: parsedDetailAlt['target'] as List<String>?,
-      detailExtra: parsedDetail['extra'],
-      detailExtraAlt: parsedDetailAlt['extra'],
-      selectionStatus: data['xkzt'] as String? ?? '',
-      selectionStartTime: data['ktxkkssj'] as String? ?? '',
-      selectionEndTime: data['ktxkjssj'] as String? ?? '',
-      ugTotal: int.tryParse(data['bksrl']?.toString() ?? '0') ?? 0,
-      ugReserved: int.tryParse(data['bksyxrlrs']?.toString() ?? '0') ?? 0,
-      pgTotal: int.tryParse(data['yjsrl']?.toString() ?? '0') ?? 0,
-      pgReserved: int.tryParse(data['yjsyxrlrs']?.toString() ?? '0') ?? 0,
-      maleTotal: data['nansrl'] != null
-          ? int.tryParse(data['nansrl'].toString())
-          : null,
-      maleReserved: data['nansyxrlrs'] != null
-          ? int.tryParse(data['nansyxrlrs'].toString())
-          : null,
-      femaleTotal: data['nvsrl'] != null
-          ? int.tryParse(data['nvsrl'].toString())
-          : null,
-      femaleReserved: data['nvsyxrlrs'] != null
-          ? int.tryParse(data['nvsyxrlrs'].toString())
-          : null,
-    );
-  }
-
-  static Map<String, dynamic> _parseDetailHtml(String? html) {
-    if (html == null || html.isEmpty) {
-      return {
-        'teacherId': null,
-        'teacherName': null,
-        'schedule': null,
-        'classes': null,
-        'target': null,
-        'extra': null,
-      };
-    }
-
-    String? teacherId;
-    String? teacherName;
-    List<String>? schedule;
-    String? classes;
-    List<String>? target;
-    String? extra;
-
-    try {
-      // teacherId and teacherName
-      if (html.contains('queryJsxx')) {
-        final start = html.indexOf("queryJsxx('") + 12;
-        if (start > 11) {
-          final end = html.indexOf("')", start);
-          if (end > start) {
-            teacherId = html.substring(start, end);
-          }
-        }
-
-        final nameStart = html.indexOf('>', html.indexOf('queryJsxx')) + 1;
-        if (nameStart > 0) {
-          final nameEnd = html.indexOf('</a>', nameStart);
-          if (nameEnd > nameStart) {
-            final rawName = html.substring(nameStart, nameEnd).trim();
-            teacherName = _cleanHtmlContent(rawName);
-          }
-        }
-      }
-
-      // schedule: .ivu-tag-cyan p
-      if (html.contains('ivu-tag-cyan')) {
-        final cyanStart = html.indexOf('ivu-tag-cyan');
-        final spanStart = html.indexOf('<span', cyanStart);
-        if (spanStart > 0) {
-          final spanContentStart = html.indexOf('>', spanStart) + 1;
-          final spanEnd = html.indexOf('</span>', spanContentStart);
-          if (spanEnd > spanContentStart) {
-            final spanContent = html.substring(spanContentStart, spanEnd);
-            final scheduleList = <String>[];
-
-            int searchStart = 0;
-            while (true) {
-              final pStart = spanContent.indexOf('<p>', searchStart);
-              if (pStart == -1) break;
-
-              final pEnd = spanContent.indexOf('</p>', pStart);
-              if (pEnd == -1) break;
-
-              final pContent = spanContent.substring(pStart + 3, pEnd).trim();
-              final cleanedContent = _cleanHtmlContent(pContent);
-              if (cleanedContent != null && cleanedContent.isNotEmpty) {
-                scheduleList.add(cleanedContent);
-              }
-
-              searchStart = pEnd + 4;
-            }
-
-            if (scheduleList.isNotEmpty) {
-              schedule = scheduleList;
-            }
-          }
-        }
-      }
-
-      // classes: .ivu-tag-green p
-      if (html.contains('ivu-tag-green')) {
-        final greenStart = html.indexOf('ivu-tag-green');
-        final pStart = html.indexOf('<p', greenStart);
-        if (pStart > 0) {
-          final contentStart = html.indexOf('>', pStart) + 1;
-          final contentEnd = html.indexOf('</p>', contentStart);
-          if (contentEnd > contentStart) {
-            final rawClasses = html.substring(contentStart, contentEnd).trim();
-            classes = _cleanHtmlContent(rawClasses);
-          }
-        }
-      }
-
-      // target: .ivu-tag-orange
-      final targetList = <String>[];
-      int searchStart = 0;
-      while (true) {
-        final orangeStart = html.indexOf('ivu-tag-orange', searchStart);
-        if (orangeStart == -1) break;
-
-        final tagStart = html.lastIndexOf('<div', orangeStart);
-        if (tagStart != -1) {
-          final tagEnd = html.indexOf('</div>', orangeStart);
-          if (tagEnd != -1) {
-            final tagContent = html.substring(tagStart, tagEnd);
-            final contentStart = tagContent.lastIndexOf('>') + 1;
-            if (contentStart > 0) {
-              final rawTarget = tagContent.substring(contentStart).trim();
-              final cleanedTarget = _cleanHtmlContent(rawTarget);
-              if (cleanedTarget != null && cleanedTarget.isNotEmpty) {
-                targetList.add(cleanedTarget);
-              }
-            }
-          }
-        }
-
-        searchStart = orangeStart + 14; // len of "ivu-tag-orange"
-      }
-
-      if (targetList.isNotEmpty) {
-        target = targetList;
-      }
-
-      // extra: last <p> content if valid
-      final lastPStart = html.lastIndexOf('<p>');
-      if (lastPStart > 0) {
-        final lastPEnd = html.indexOf('</p>', lastPStart);
-        if (lastPEnd > lastPStart) {
-          final rawText = html.substring(lastPStart + 3, lastPEnd).trim();
-          if (rawText.isNotEmpty &&
-              !rawText.contains('queryJsxx') &&
-              !rawText.contains('上课信息') &&
-              !rawText.contains('Class Information') &&
-              !rawText.contains('面向对象')) {
-            extra = _cleanHtmlContent(rawText);
-          }
-        }
-      }
-    } catch (e) {
-      // ignored
-    }
+  Map<String, String> toFormData() {
+    final xnxq = termInfo != null
+        ? '${termInfo!.year}${termInfo!.season}'
+        : null;
 
     return {
-      'teacherId': teacherId,
-      'teacherName': teacherName,
-      'schedule': schedule,
-      'classes': classes,
-      'target': target,
-      'extra': extra,
+      // Fixed
+      'cxsfmt': '1',
+      'p_pylx': '1',
+      'mxpylx': '1',
+      'p_sfgldjr': '0',
+      'p_sfredis': '0',
+      'p_sfsyxkgwc': '0',
+
+      // Submit destination
+      'p_xktjz': isForSubmission ? 'rwtjzyx' : '',
+
+      // Reserved
+      'p_chaxunxh': '',
+      'p_gjz': '',
+      'p_skjs': '',
+
+      // Year and term
+      'p_xn': termInfo?.year ?? '',
+      'p_xq': termInfo?.season.toString() ?? '',
+      'p_xnxq': xnxq ?? '',
+      'p_dqxn': termInfo?.year ?? '',
+      'p_dqxq': termInfo?.season.toString() ?? '',
+      'p_dqxnxq': xnxq ?? '',
+
+      // Course tab
+      'p_xkfsdm': tabId ?? '',
+
+      // Reserved
+      'p_xiaoqu': '',
+      'p_kkyx': '',
+      'p_kclb': '',
+      'p_xkxs': '',
+      'p_dyc': '',
+      'p_kkxnxq': '',
+
+      // Class ID
+      'p_id': classId ?? '',
+
+      // Reserved
+      'p_sfhlctkc': '0',
+      'p_sfhllrlkc': '0',
+      'p_kxsj_xqj': '',
+      'p_kxsj_ksjc': '',
+      'p_kxsj_jsjc': '',
+      'p_kcdm_js': '',
+
+      // Course ID
+      'p_kcdm_cxrw': courseId ?? '',
+      'p_kcdm_cxrw_zckc': courseId ?? '',
+
+      // Reserved
+      'p_kc_gjz': '',
+      'p_xzcxtjz_nj': '',
+      'p_xzcxtjz_yx': '',
+      'p_xzcxtjz_zy': '',
+      'p_xzcxtjz_zyfx': '',
+      'p_xzcxtjz_bj': '',
+      'p_sfxsgwckb': '1',
+      'p_skyy': '',
+      'p_sfmxzj': '',
+      'p_chaxunxkfsdm': '',
     };
   }
-
-  static String? _cleanHtmlContent(String? content) {
-    if (content == null || content.isEmpty) {
-      return null;
-    }
-    String cleaned = content
-        .replaceAll(RegExp(r'<[^>]*>'), '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (cleaned.isEmpty ||
-        cleaned == '&nbsp;' ||
-        cleaned == ' ' ||
-        RegExp(r'^[\s\u00A0]*$').hasMatch(cleaned)) {
-      return null;
-    }
-    return cleaned;
-  }
 }
 
-extension CourseInfoUstbByytExtension on CourseInfo {
-  static CourseInfo parse(Map<String, dynamic> data, {String? fromTabId}) {
-    // Check if id is present and valid
-    CourseDetail? classDetail;
-    if (data['id'] != null && data['id'].toString().isNotEmpty) {
-      classDetail = CourseDetailUstbByytExtension.parse(data);
+class UstbByytService extends BaseCoursesService {
+  String? _cookie;
+  CourseSelectionState _selectionState = CourseSelectionState();
+
+  @override
+  String get defaultBaseUrl => 'https://byyt.ustb.edu.cn';
+
+  @override
+  Future<void> doLogin() async {}
+
+  Future<void> loginWithCookie(String cookie) async {
+    try {
+      setPending();
+      _cookie = cookie;
+
+      // Validate cookie by trying to get user info
+      await getUserInfo();
+
+      await doLogin();
+
+      setOnline();
+    } catch (e) {
+      _cookie = null;
+      if (e is CourseServiceNetworkError) {
+        setError('Failed to login with cookie (network error): $e');
+      } else if (e is CourseServiceException) {
+        setError('Failed to login with cookie: $e');
+      } else {
+        throw CourseServiceException(
+          'Failed to login with cookie (unexpected exception)',
+          e,
+        );
+      }
+    }
+  }
+
+  Map<String, String> _getHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    };
+
+    if (_cookie != null) {
+      headers['Cookie'] = _cookie!;
     }
 
-    return CourseInfo(
-      courseId: data['kcdm'] as String? ?? '',
-      courseName: data['kcmc'] as String? ?? '',
-      courseNameAlt: data['kcmc_en'] as String?,
-      courseType: data['kcxzmc'] as String? ?? '',
-      courseTypeAlt: data['kcxzmc_en'] as String?,
-      courseCategory: data['kclbmc'] as String? ?? '',
-      courseCategoryAlt: data['kclbmc_en'] as String?,
-      districtName: data['xiaoqumc'] as String? ?? '',
-      districtNameAlt: data['xiaoqumc_en'] as String?,
-      schoolName: data['kkyxmc'] as String? ?? '',
-      schoolNameAlt: data['kkyxmc_en'] as String?,
-      termName: data['xnxqmc'] as String? ?? '',
-      termNameAlt: data['xnxqmc_en'] as String?,
-      teachingLanguage: data['skyymc'] as String? ?? '',
-      teachingLanguageAlt: data['skyymc_en'] as String?,
-      credits: double.tryParse(data['xf']?.toString() ?? '0') ?? 0.0,
-      hours:
-          double.tryParse(
-            data['xszxs']?.toString() ?? data['xs']?.toString() ?? '0',
-          ) ??
-          0.0,
-      classDetail: classDetail,
-      fromTabId: fromTabId,
-    );
+    return headers;
   }
-}
 
-extension CourseTabUstbByytExtension on CourseTab {
-  static CourseTab parse(Map<String, dynamic> data) {
-    return CourseTab(
-      tabId: data['xkfsdm'] as String? ?? '',
-      tabName: data['xkfsmc'] as String? ?? '',
-      tabNameAlt: data['xkfsmc_en'] as String?,
-      selectionStartTime: data['ktxkkssj'] as String?,
-      selectionEndTime: data['ktxkjssj'] as String?,
-    );
+  @override
+  Future<void> doLogout() async {
+    _cookie = null;
+    _selectionState = CourseSelectionState();
+    setOffline();
+  }
+
+  @override
+  Future<bool> doSendHeartbeat() async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      return false;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/component/online'),
+        headers: _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        final success = data['code'] == 0;
+
+        if (!success) {
+          setError('Heartbeat failed: ${data['msg'] ?? 'No msg'}');
+        }
+
+        return success;
+      } else {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  Future<UserInfo> getUserInfo() async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('$baseUrl/user/me'),
+        headers: _getHeaders(),
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to to get user info', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, () {
+      setError();
+    });
+
+    try {
+      return UserInfoUstbByytExtension.parse(json.decode(response.body));
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse user info response', e);
+    }
+  }
+
+  @override
+  Future<List<CourseGradeItem>> getGrades() async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final requestBody = json.encode({
+        'xn': null,
+        'xq': null,
+        'kcmc': null,
+        'cxbj': '-1',
+        'pylx': '1',
+        'current': 1,
+        'pageSize': 1000,
+        'sffx': null,
+      });
+
+      response = await http.post(
+        Uri.parse('$baseUrl/cjgl/grcjcx/grcjcx'),
+        headers: {
+          ..._getHeaders(),
+          'Content-Type': 'application/json', // This endpoint expects JSON
+        },
+        body: requestBody,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get grades', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['code'] != 200) {
+        throw CourseServiceBadRequest(
+          'API returned error: ${data['msg'] ?? 'No msg'}',
+          data['code'] as int?,
+        );
+      }
+      if (data['content'] == null) {
+        throw CourseServiceBadResponse('Response content is null');
+      }
+      if (data['content']['list'] == null) {
+        return [];
+      }
+
+      final gradeList = data['content']['list'] as List<dynamic>;
+
+      return gradeList
+          .map(
+            (item) => CourseGradeItemUstbByytExtension.parse(
+              item as Map<String, dynamic>,
+            ),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse grades response', e);
+    }
+  }
+
+  @override
+  Future<List<ExamInfo>> getExams(TermInfo termInfo) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('$baseUrl/kscxtj/queryXsksByxhList'),
+        headers: _getHeaders(),
+        body:
+            'ppylx=1&pkkyx=&pxn=${termInfo.year}&pxq=${termInfo.season}&pageNum=1&pageSize=40',
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get exams', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['code'] != null && data['code'] != 200) {
+        throw CourseServiceBadRequest(
+          'API returned error: ${data['msg'] ?? 'No msg'}',
+          data['code'] as int?,
+        );
+      }
+      if (data['list'] == null) {
+        return [];
+      }
+
+      final examList = data['list'] as List<dynamic>;
+
+      return examList
+          .map(
+            (item) =>
+                ExamInfoUstbByytExtension.parse(item as Map<String, dynamic>),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse exams response', e);
+    }
+  }
+
+  @override
+  Future<List<ClassItem>> getCurriculum(TermInfo termInfo) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('$baseUrl/Xskbcx/queryXskbcxList'),
+        headers: _getHeaders(),
+        body: 'bs=2&xn=${termInfo.year}&xq=${termInfo.season}',
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get curriculum', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      // Handle different response formats
+      List<dynamic> curriculumList;
+
+      if (data is List) {
+        // Direct array response
+        curriculumList = data;
+      } else if (data is Map<String, dynamic>) {
+        if (data['code'] != 200) {
+          throw CourseServiceBadRequest(
+            'API returned error: ${data['msg'] ?? 'No msg'}',
+            data['code'] as int?,
+          );
+        }
+        if (data['content'] == null) {
+          throw CourseServiceBadResponse('Response content is null');
+        }
+
+        curriculumList = data['content'] as List<dynamic>? ?? [];
+      } else {
+        throw CourseServiceBadResponse(
+          'Unexpected response format (neither List nor Map)',
+        );
+      }
+
+      // Parse curriculum items
+      final classList = <ClassItem>[];
+      for (final item in curriculumList) {
+        final classItem = ClassItemUstbByytExtension.parse(
+          item as Map<String, dynamic>,
+        );
+        if (classItem != null) {
+          classList.add(classItem);
+        }
+      }
+
+      return classList;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse curriculum response', e);
+    }
+  }
+
+  @override
+  Future<List<ClassPeriod>> getCoursePeriods(TermInfo termInfo) async {
+    if (status == ServiceStatus.offline) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('$baseUrl/component/queryKbjg'),
+        headers: _getHeaders(),
+        body: {
+          'xn': termInfo.year,
+          'xq': termInfo.season.toString(),
+          'nodataqx': '1',
+        },
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get course periods', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['code'] != 200) {
+        throw CourseServiceBadRequest(
+          'API returned error: ${data['msg'] ?? 'No msg'}',
+          data['code'] as int?,
+        );
+      }
+      if (data['content'] == null) {
+        throw CourseServiceBadResponse('Response content is null');
+      }
+
+      final periodsList = data['content'] as List<dynamic>? ?? [];
+
+      return periodsList
+          .map(
+            (item) => ClassPeriodUstbByytExtension.parse(
+              item as Map<String, dynamic>,
+            ),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse course periods response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<List<CalendarDay>> getCalendarDays(TermInfo termInfo) async {
+    http.Response response;
+
+    final formData = {'xn': termInfo.year, 'xq': termInfo.season.toString()};
+
+    try {
+      final headers = _getHeaders();
+      headers['Rolecode'] = '01';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xiaoli/queryMonthList'),
+        headers: headers,
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError(
+        'Failed to send calendar days request',
+        e,
+      );
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+      final List<dynamic> xlListJson = data['xlList'] as List<dynamic>;
+      final List<CalendarDay> calendarDays = xlListJson
+          .map(
+            (item) => CalendarDayUstbByytExtension.parse(
+              item as Map<String, dynamic>,
+            ),
+          )
+          .toList();
+
+      return calendarDays;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse calendar days response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<List<CourseInfo>> getSelectedCourses(
+    TermInfo termInfo, [
+    String? tab,
+  ]) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      if (tab != null) {
+        final params = _CourseSelectionSharedParams(
+          termInfo: termInfo,
+          tabId: tab,
+        );
+        final formData = params.toFormData();
+
+        response = await http.post(
+          Uri.parse('$baseUrl/Xsxk/queryKxrw'),
+          headers: _getHeaders(),
+          body: formData,
+        );
+      } else {
+        final params = _CourseSelectionSharedParams(
+          termInfo: termInfo,
+          tabId: 'yixuan',
+        );
+        final formData = params.toFormData();
+
+        response = await http.post(
+          Uri.parse('$baseUrl/Xsxk/queryYxkc'),
+          headers: _getHeaders(),
+          body: formData,
+        );
+      }
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get selected courses', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      // Handle different response formats
+      if (data is Map<String, dynamic> && data.containsKey('code')) {
+        // Response with code field
+        if (data['code'] != 200) {
+          throw CourseServiceBadRequest(
+            'API returned error: ${data['msg'] ?? 'No msg'}',
+            data['code'] as int?,
+          );
+        }
+        if (data['content'] == null) {
+          throw CourseServiceBadResponse('Response content is null');
+        }
+      }
+      // For responses without code field, proceed directly
+
+      List<dynamic> coursesList;
+      if (tab != null) {
+        // /Xsxk/queryKxrw response
+        coursesList = data['yxkcList'] as List<dynamic>? ?? [];
+      } else {
+        // /Xsxk/queryYxkc response
+        if (data.containsKey('content')) {
+          coursesList = data['content'] as List<dynamic>? ?? [];
+        } else {
+          // Direct array response
+          coursesList = data['yxkcList'] as List<dynamic>? ?? [];
+        }
+      }
+
+      return coursesList
+          .map(
+            (item) => CourseInfoUstbByytExtension.parse(
+              item as Map<String, dynamic>,
+              fromTabId: tab ?? 'yixuan',
+            ),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse selected courses response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<List<CourseInfo>> getSelectableCourses(
+    TermInfo termInfo,
+    String tab,
+  ) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        tabId: tab,
+      );
+      final formData = params.toFormData();
+
+      formData['pageNum'] = '1';
+      formData['pageSize'] = '1000';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get selectable courses', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      final kxrwList = data['kxrwList'] as Map<String, dynamic>?;
+
+      if (kxrwList == null) {
+        throw CourseServiceBadResponse('Response kxrwList is null');
+      }
+
+      final coursesList = kxrwList['list'] as List<dynamic>? ?? [];
+
+      return coursesList
+          .map(
+            (item) => CourseInfoUstbByytExtension.parse(
+              item as Map<String, dynamic>,
+              fromTabId: tab,
+            ),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse selectable courses response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<List<CourseTab>> getCourseTabs(TermInfo termInfo) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        tabId: 'yixuan',
+      );
+      final formData = params.toFormData();
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/queryYxkc'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get course tabs', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      final tabsList = data['xkgzszList'] as List<dynamic>? ?? [];
+
+      return tabsList
+          .map(
+            (item) =>
+                CourseTabUstbByytExtension.parse(item as Map<String, dynamic>),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse course tabs response', e);
+    }
+  }
+
+  @override
+  Future<List<TermInfo>> getTerms() async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('$baseUrl/component/queryXnxq'),
+        headers: _getHeaders(),
+        body: {'data': 'cTnrJ54+H2bKCT5c1Gq1+w=='},
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get terms', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['code'] != 200) {
+        throw CourseServiceBadRequest(
+          'API returned error: ${data['msg'] ?? 'No msg'}',
+          data['code'] as int?,
+        );
+      }
+      if (data['content'] == null) {
+        throw CourseServiceBadResponse('Response content is null');
+      }
+
+      final termsList = data['content'] as List<dynamic>;
+
+      return termsList
+          .map(
+            (item) =>
+                TermInfoUstbByytExtension.parse(item as Map<String, dynamic>),
+          )
+          .toList();
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse('Failed to parse terms response', e);
+    }
+  }
+
+  @override
+  Future<List<CourseInfo>> getCourseDetail(
+    TermInfo termInfo,
+    CourseInfo courseInfo,
+  ) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        tabId: courseInfo.fromTabId,
+        courseId: courseInfo.courseId,
+      );
+      final formData = params.toFormData();
+
+      formData['pageNum'] = '1';
+      formData['pageSize'] = '1000';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError('Failed to get course detail', e);
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      final kxrwList = data['kxrwList'] as Map<String, dynamic>?;
+
+      if (kxrwList == null) {
+        throw CourseServiceBadResponse('Response kxrwList is null');
+      }
+
+      final coursesList = kxrwList['list'] as List<dynamic>? ?? [];
+
+      // Filter
+      List<CourseInfo> results = [];
+      for (var courseJson in coursesList) {
+        try {
+          final courseDetail = CourseInfoUstbByytExtension.parse(
+            courseJson as Map<String, dynamic>,
+            fromTabId: courseInfo.fromTabId,
+          );
+
+          if (courseDetail.courseId == courseInfo.courseId &&
+              courseDetail.classDetail != null) {
+            results.add(courseDetail);
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      return results;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse course detail response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<bool> sendCourseSelection(
+    TermInfo termInfo,
+    CourseInfo courseInfo,
+  ) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        isForSubmission: true,
+        tabId: courseInfo.fromTabId,
+        classId: courseInfo.classDetail?.classId ?? '',
+        courseId: courseInfo.courseId,
+      );
+
+      final formData = params.toFormData();
+
+      formData['pageNum'] = '1';
+      formData['pageSize'] = '100';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/addGouwuche'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError(
+        'Failed to send course selection request',
+        e,
+      );
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['jg'] != 1 && data['jg'] != '1') {
+        throw CourseServiceBadRequest('${data['message'] ?? 'No msg'}');
+      }
+      return true;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse course selection response',
+        e,
+      );
+    }
+  }
+
+  @override
+  Future<bool> sendCourseDeselection(
+    TermInfo termInfo,
+    CourseInfo courseInfo,
+  ) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        isForSubmission: true,
+        tabId: courseInfo.fromTabId,
+        classId: courseInfo.classDetail?.classId ?? '',
+        courseId: courseInfo.courseId,
+      );
+
+      final formData = params.toFormData();
+
+      formData['pageNum'] = '1';
+      formData['pageSize'] = '100';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/tuike'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError(
+        'Failed to send course deselection request',
+        e,
+      );
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['jg'] != 1 && data['jg'] != '1') {
+        throw CourseServiceBadRequest('${data['message'] ?? 'No msg'}');
+      }
+      return true;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse course deselection response',
+        e,
+      );
+    }
+  }
+
+  @override
+  CourseSelectionState getCourseSelectionState() {
+    return _selectionState;
+  }
+
+  @override
+  void updateCourseSelectionState(CourseSelectionState state) {
+    _selectionState = state;
+  }
+
+  @override
+  void addCourseToSelection(CourseInfo course) {
+    _selectionState = _selectionState.addCourse(course);
+  }
+
+  @override
+  void removeCourseFromSelection(String courseId, [String? classId]) {
+    _selectionState = _selectionState.removeCourse(courseId, classId);
+  }
+
+  @override
+  void setSelectionTermInfo(TermInfo termInfo) {
+    _selectionState = _selectionState.setTermInfo(termInfo);
+  }
+
+  @override
+  void clearCourseSelection() {
+    _selectionState = _selectionState.clear();
   }
 }

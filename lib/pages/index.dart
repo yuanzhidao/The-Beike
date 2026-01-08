@@ -3,6 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:auto_route/auto_route.dart';
 import '/utils/page_mixins.dart';
 import '/types/courses.dart';
+import '/types/preferences.dart';
+import '/types/sync.dart';
+
+class _FeatureCardConfig {
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color color;
+  final String route;
+
+  const _FeatureCardConfig({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.color,
+    required this.route,
+  });
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,13 +36,59 @@ class _HomePageState extends State<HomePage>
   ClassItem? _ongoingClass;
   ClassItem? _upcomingClass;
   CurriculumIntegratedData? _curriculumData;
-  Timer? _refreshTimer;
+  Timer? _shortRefreshTimer;
+  Timer? _longRefreshTimer;
+  int _unreadAnnouncementCount = 0;
+  Announcement? _firstUnreadDangerAnnouncement;
+
+  // Feature card configurations
+  late final List<_FeatureCardConfig> _courseFeatureCards = [
+    _FeatureCardConfig(
+      title: '选课',
+      description: '查看和管理课程',
+      icon: Icons.school,
+      color: Colors.blue,
+      route: '/courses/selection',
+    ),
+    _FeatureCardConfig(
+      title: '考试',
+      description: '查看考试时间和地点',
+      icon: Icons.assignment,
+      color: Colors.orangeAccent,
+      route: '/courses/exam',
+    ),
+    _FeatureCardConfig(
+      title: '成绩',
+      description: '查看考试成绩',
+      icon: Icons.assessment,
+      color: Colors.orange,
+      route: '/courses/grade',
+    ),
+  ];
+
+  late final List<_FeatureCardConfig> _netFeatureCards = [
+    _FeatureCardConfig(
+      title: '流量监视',
+      description: '实时监控网络流量',
+      icon: Icons.swap_vert,
+      color: Colors.green,
+      route: '/net/monitor',
+    ),
+    _FeatureCardConfig(
+      title: '自助服务',
+      description: '账户管理和账单查询',
+      icon: Icons.wifi,
+      color: Colors.teal,
+      route: '/net/dashboard',
+    ),
+  ];
 
   @override
   void onServiceInit() {
     _loadUserInfo();
     _loadCurriculumData();
-    _startRefreshTimer();
+    _loadUnreadAnnouncementsCount();
+    _startTimers();
   }
 
   @override
@@ -35,22 +99,30 @@ class _HomePageState extends State<HomePage>
         setState(() {});
         _loadUserInfo();
         _loadCurriculumData();
+        _loadUnreadAnnouncementsCount();
       }
     });
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    _shortRefreshTimer?.cancel();
+    _longRefreshTimer?.cancel();
     super.dispose();
   }
 
-  void _startRefreshTimer() {
-    _refreshTimer?.cancel();
-
-    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+  void _startTimers() {
+    _shortRefreshTimer?.cancel();
+    _shortRefreshTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) {
         _loadCurriculumData();
+      }
+    });
+
+    _longRefreshTimer?.cancel();
+    _longRefreshTimer = Timer.periodic(const Duration(minutes: 10), (timer) {
+      if (mounted) {
+        _loadUnreadAnnouncementsCount();
       }
     });
   }
@@ -112,6 +184,45 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  Future<void> _loadUnreadAnnouncementsCount() async {
+    try {
+      final announcements = await serviceProvider.syncService
+          .getAnnouncements();
+      final store = serviceProvider.storeService;
+      var readMap =
+          store.getConfig<AnnouncementReadMap>(
+            'announcement_read',
+            AnnouncementReadMap.fromJson,
+          ) ??
+          AnnouncementReadMap.defaultMap;
+
+      int count = 0;
+      Announcement? firstUnreadDanger;
+
+      for (final announcement in announcements) {
+        final key = announcement.calculateKey();
+        if (!readMap.readTimestamp.containsKey(key)) {
+          count++;
+
+          // Find the first unread DANGER announcement
+          if (firstUnreadDanger == null &&
+              announcement.group.toLowerCase() == 'danger') {
+            firstUnreadDanger = announcement;
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _unreadAnnouncementCount = count;
+          _firstUnreadDangerAnnouncement = firstUnreadDanger;
+        });
+      }
+    } catch (e) {
+      // Ignore errors for background check
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -121,15 +232,28 @@ class _HomePageState extends State<HomePage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(height: MediaQuery.of(context).padding.top + 16),
-            const Text(
-              '欢迎来到大贝壳~',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '欢迎来到大贝壳~',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: _buildAnnouncementButton(),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '北京科技大学校园助手',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
+            if (_firstUnreadDangerAnnouncement != null)
+              _buildDangerAnnouncementCallout()
+            else ...[
+              const SizedBox(height: 8),
+              Text(
+                '北京科技大学校园助手',
+                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              ),
+            ],
             const SizedBox(height: 32),
             _buildFeatureGrid(),
             const SizedBox(height: 32),
@@ -137,6 +261,107 @@ class _HomePageState extends State<HomePage>
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementButton() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          onPressed: () async {
+            await context.router.pushPath('/more/anno');
+            // Refresh count when returning from announcement page
+            _loadUnreadAnnouncementsCount();
+          },
+          icon: const Icon(Icons.notifications_outlined),
+          tooltip: '公告',
+        ),
+        if (_unreadAnnouncementCount > 0)
+          Positioned(
+            right: 2,
+            top: 2,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              child: Text(
+                _unreadAnnouncementCount > 9
+                    ? '9+'
+                    : _unreadAnnouncementCount.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDangerAnnouncementCallout() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12.0),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Main callout card
+          GestureDetector(
+            onTap: () async {
+              await context.router.pushPath('/more/anno');
+              // Refresh count when returning from announcement page
+              _loadUnreadAnnouncementsCount();
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                border: Border.all(color: Colors.red, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.campaign, color: Colors.red, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _firstUnreadDangerAnnouncement!.title,
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.red,
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Arrow pointing to top-right
+          Positioned(
+            right: 16,
+            top: -8,
+            child: CustomPaint(
+              size: const Size(16, 8),
+              painter: _ArrowPainter(color: Colors.red),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -204,30 +429,24 @@ class _HomePageState extends State<HomePage>
         ),
         const SizedBox(height: 8),
         SizedBox(height: 100, child: _buildAccountCard(context)),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 100,
-          child: _buildFeatureCard(
-            context,
-            '选课',
-            '查看和管理课程',
-            Icons.school,
-            Colors.blue,
-            () => context.router.pushPath('/courses/selection'),
-          ),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 100,
-          child: _buildFeatureCard(
-            context,
-            '成绩',
-            '查看考试成绩',
-            Icons.assessment,
-            Colors.blueAccent,
-            () => context.router.pushPath('/courses/grade'),
-          ),
-        ),
+        ..._courseFeatureCards.map((card) {
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 100,
+                child: _buildFeatureCard(
+                  context,
+                  card.title,
+                  card.description,
+                  card.icon,
+                  card.color,
+                  () => context.router.pushPath(card.route),
+                ),
+              ),
+            ],
+          );
+        }),
       ],
     );
   }
@@ -242,35 +461,44 @@ class _HomePageState extends State<HomePage>
         const SizedBox(height: 8),
         SizedBox(
           height: 120,
-          child: Row(
-            children: [
-              Expanded(child: _buildAccountCard(context)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildFeatureCard(
-                  context,
-                  '选课',
-                  '查看和管理课程',
-                  Icons.school,
-                  Colors.blue,
-                  () => context.router.pushPath('/courses/selection'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildFeatureCard(
-                  context,
-                  '成绩',
-                  '查看考试成绩',
-                  Icons.assessment,
-                  Colors.blueAccent,
-                  () => context.router.pushPath('/courses/grade'),
-                ),
-              ),
-            ],
-          ),
+          child: _buildCardRow([
+            _buildAccountCard(context),
+            _courseFeatureCards[0],
+          ]),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 120,
+          child: _buildCardRow([
+            _courseFeatureCards[1],
+            _courseFeatureCards[2],
+          ]),
         ),
       ],
+    );
+  }
+
+  Widget _buildCardRow(List<dynamic> items) {
+    return Row(
+      children: items.asMap().entries.expand((entry) {
+        final index = entry.key;
+        final item = entry.value;
+        return [
+          if (index > 0) const SizedBox(width: 8),
+          Expanded(
+            child: item is Widget
+                ? item
+                : _buildFeatureCard(
+                    context,
+                    item.title,
+                    item.description,
+                    item.icon,
+                    item.color,
+                    () => context.router.pushPath(item.route),
+                  ),
+          ),
+        ];
+      }).toList(),
     );
   }
 
@@ -583,63 +811,29 @@ class _HomePageState extends State<HomePage>
 
   Widget _buildNetNarrowLayout() {
     return Column(
-      children: [
-        SizedBox(
-          height: 100,
-          child: _buildFeatureCard(
-            context,
-            '流量监视',
-            '实时监控网络流量',
-            Icons.network_check,
-            Colors.green,
-            () => context.router.pushPath('/net/monitor'),
+      children: _netFeatureCards.asMap().entries.expand((entry) {
+        final index = entry.key;
+        final card = entry.value;
+        return [
+          if (index > 0) const SizedBox(height: 8),
+          SizedBox(
+            height: 100,
+            child: _buildFeatureCard(
+              context,
+              card.title,
+              card.description,
+              card.icon,
+              card.color,
+              () => context.router.pushPath(card.route),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 100,
-          child: _buildFeatureCard(
-            context,
-            '自助服务',
-            '账户管理和账单查询',
-            Icons.settings,
-            Colors.teal,
-            () => context.router.pushPath('/net/dashboard'),
-          ),
-        ),
-      ],
+        ];
+      }).toList(),
     );
   }
 
   Widget _buildNetWideLayout() {
-    return SizedBox(
-      height: 120,
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildFeatureCard(
-              context,
-              '流量监视',
-              '实时监控网络流量',
-              Icons.swap_vert,
-              Colors.green,
-              () => context.router.pushPath('/net/monitor'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildFeatureCard(
-              context,
-              '自助服务',
-              '账户管理和账单查询',
-              Icons.wifi,
-              Colors.teal,
-              () => context.router.pushPath('/net/dashboard'),
-            ),
-          ),
-        ],
-      ),
-    );
+    return SizedBox(height: 120, child: _buildCardRow(_netFeatureCards));
   }
 
   Widget _buildAccountCard(BuildContext context) {
@@ -714,4 +908,30 @@ class _HomePageState extends State<HomePage>
       ),
     );
   }
+}
+
+// Custom painter for the upward-pointing arrow
+class _ArrowPainter extends CustomPainter {
+  final Color color;
+
+  _ArrowPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    // Create an upward-pointing triangle
+    path.moveTo(size.width / 2, 0); // Top point
+    path.lineTo(0, size.height); // Bottom left
+    path.lineTo(size.width, size.height); // Bottom right
+    path.close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

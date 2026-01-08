@@ -8,7 +8,8 @@ class CourseDetailCard extends StatefulWidget {
   final TermInfo termInfo;
   final bool isExpanded;
   final VoidCallback onToggle;
-  final VoidCallback? onSelectionChanged;
+  final VoidCallback onSelectionChanged;
+  final VoidCallback onRefreshRequired;
   final List<String> selectedCourseIds;
 
   const CourseDetailCard({
@@ -17,7 +18,8 @@ class CourseDetailCard extends StatefulWidget {
     required this.termInfo,
     required this.isExpanded,
     required this.onToggle,
-    this.onSelectionChanged,
+    required this.onSelectionChanged,
+    required this.onRefreshRequired,
     required this.selectedCourseIds,
   });
 
@@ -26,7 +28,7 @@ class CourseDetailCard extends StatefulWidget {
 }
 
 class _CourseDetailCardState extends State<CourseDetailCard>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final ServiceProvider _serviceProvider = ServiceProvider.instance;
 
   late AnimationController _expansionController;
@@ -34,6 +36,9 @@ class _CourseDetailCardState extends State<CourseDetailCard>
   late Animation<double> _expansionAnimation;
   late Animation<double> _titleOpacityAnimation;
   late Animation<Offset> _titleSlideAnimation;
+
+  @override
+  bool get wantKeepAlive => widget.isExpanded;
 
   List<CourseInfo> _courseDetails = [];
   bool _isLoadingDetails = false;
@@ -85,6 +90,7 @@ class _CourseDetailCardState extends State<CourseDetailCard>
   void didUpdateWidget(CourseDetailCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isExpanded != oldWidget.isExpanded) {
+      updateKeepAlive();
       if (widget.isExpanded) {
         _expansionController.forward();
         _titleController.forward();
@@ -118,7 +124,7 @@ class _CourseDetailCardState extends State<CourseDetailCard>
           detail.classId,
         );
       });
-      widget.onSelectionChanged?.call();
+      widget.onSelectionChanged.call();
       return;
     }
 
@@ -140,7 +146,30 @@ class _CourseDetailCardState extends State<CourseDetailCard>
     setState(() {
       _serviceProvider.coursesService.addCourseToSelection(courseDetail);
     });
-    widget.onSelectionChanged?.call();
+    widget.onSelectionChanged.call();
+  }
+
+  Future<void> _handleCourseDeselection(
+    CourseInfo courseDetail,
+    CourseDetail detail,
+  ) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => CourseDeselectionDialog(
+        termInfo: widget.termInfo,
+        course: courseDetail,
+        onDeselectionComplete: (_) => widget.onRefreshRequired(),
+      ),
+    );
+
+    if (result == true) {
+      if (mounted) {
+        // Refresh details and notify parent
+        await _loadCourseDetails();
+        widget.onSelectionChanged.call();
+      }
+    }
   }
 
   Future<void> _loadCourseDetails() async {
@@ -198,6 +227,7 @@ class _CourseDetailCardState extends State<CourseDetailCard>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ClipRect(
       child: AnimatedBuilder(
         animation: _expansionAnimation,
@@ -704,7 +734,8 @@ class _CourseDetailCardState extends State<CourseDetailCard>
           ),
         ],
 
-        if (detail.detailExtra?.isNotEmpty == true)
+        if (detail.detailExtra?.isNotEmpty == true &&
+            detail.detailExtra != detail.detailClasses)
           Row(
             children: [
               Icon(Icons.info_outline, size: 16, color: Colors.grey.shade600),
@@ -1003,37 +1034,46 @@ class _CourseDetailCardState extends State<CourseDetailCard>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Left: Selection Status (Fixed Width)
+                // Left: Deselection Button (Fixed Width)
                 SizedBox(
                   width: 60,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade100,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.green.shade300,
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.check_circle,
-                          size: 22,
-                          color: Colors.green.shade700,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '已选',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.green.shade700,
+                      onTap: () async {
+                        await _handleCourseDeselection(courseDetail, detail);
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.green.shade200,
+                            width: 1,
                           ),
-                          maxLines: 2,
                         ),
-                      ],
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.delete_rounded,
+                              size: 22,
+                              color: Colors.green.shade700,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '退课',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.green.shade700,
+                              ),
+                              maxLines: 2,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),

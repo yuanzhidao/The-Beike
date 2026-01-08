@@ -1,7 +1,34 @@
 import '/services/base.dart';
 import '/types/sync.dart';
 
-abstract class BaseSyncService extends BaseService {
+enum SyncStatusType { idle, syncing, success, failure }
+
+class SyncStatus {
+  final SyncStatusType type;
+  final DateTime timestamp;
+
+  SyncStatus({required this.type, required this.timestamp});
+
+  bool get isSuccess => type == SyncStatusType.success;
+  bool get isFailure => type == SyncStatusType.failure;
+  bool get isSyncing => type == SyncStatusType.syncing;
+}
+
+abstract class BaseSyncService with BaseService {
+  SyncStatus? _lastSyncStatus;
+
+  SyncStatus? get lastSyncStatus => _lastSyncStatus;
+
+  void recordSyncStatus(SyncStatusType type) {
+    _lastSyncStatus = SyncStatus(type: type, timestamp: DateTime.now());
+  }
+
+  /// Gets announcements from the server.
+  Future<List<Announcement>> getAnnouncements();
+
+  /// Gets release info from the server.
+  Future<ReleaseInfo?> getRelease();
+
   /// Registers a new device and get a unique device ID.
   Future<String> registerDevice({
     required String deviceOs,
@@ -40,4 +67,11 @@ abstract class BaseSyncService extends BaseService {
 
   /// Removes the given device from a sync group.
   Future<void> leaveGroup({required String deviceId, required String groupId});
+
+  /// Syncs config with the server.
+  Future<Map<String, dynamic>?> update({
+    required String deviceId,
+    required String groupId,
+    required Map<String, dynamic> config,
+  });
 }

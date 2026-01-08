@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '/services/provider.dart';
 import '/types/courses.dart';
 
 Future<bool?> alertWarning(BuildContext context, String content, String tip) {
@@ -63,6 +64,187 @@ Future<bool?> alertClassFullWarning(BuildContext context) {
 
 Future<bool?> alertClearSelectedWarning(BuildContext context) {
   return alertWarning(context, '您真的要清除备选课程列表吗？', '');
+}
+
+Future<bool?> alertDeselectCourseWarning(
+  BuildContext context,
+  String courseName,
+) {
+  return alertWarning(
+    context,
+    '您真的要退选课程“$courseName”吗？',
+    '退选后，您可能无法再次选入该课程（特别是在讲台已满的情况下）。',
+  );
+}
+
+/// A dialog that handles course deselection with loading and result states.
+class CourseDeselectionDialog extends StatefulWidget {
+  final TermInfo termInfo;
+  final CourseInfo course;
+  final Function(bool success) onDeselectionComplete;
+
+  const CourseDeselectionDialog({
+    super.key,
+    required this.termInfo,
+    required this.course,
+    required this.onDeselectionComplete,
+  });
+
+  @override
+  State<CourseDeselectionDialog> createState() =>
+      _CourseDeselectionDialogState();
+}
+
+class _CourseDeselectionDialogState extends State<CourseDeselectionDialog> {
+  bool _isLoading = false;
+  bool? _isSuccess;
+  String? _errorMessage;
+
+  Future<void> _runDeselection() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      final success = await ServiceProvider.instance.coursesService
+          .sendCourseDeselection(widget.termInfo, widget.course);
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isSuccess = success;
+        });
+        widget.onDeselectionComplete.call(success);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isSuccess = false;
+          _errorMessage = e.toString();
+        });
+        widget.onDeselectionComplete.call(false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isSuccess == true) {
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.delete_rounded, color: Colors.green),
+            SizedBox(width: 8),
+            Text('退课成功'),
+          ],
+        ),
+        content: Text(
+          '您已退选课程“${widget.course.courseName}”。',
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      );
+    }
+
+    if (_isSuccess == false) {
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('退课失败'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('发起的退选请求未能成功。', style: TextStyle(fontSize: 16)),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '错误原因：${_errorMessage!}',
+                  style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('关闭'),
+          ),
+        ],
+      );
+    }
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            Icons.warning,
+            color: Theme.of(context).colorScheme.error,
+            size: 24,
+          ),
+          const SizedBox(width: 8),
+          const Text('退课'),
+        ],
+      ),
+      content: _isLoading
+          ? const Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('正在发起退课请求...', style: TextStyle(fontSize: 16)),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '您真的要退选课程“${widget.course.courseName}”吗？',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '退课后，您可能无法再次选入该课程。您应在知晓退课风险的前提下继续。',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+      actions: [
+        if (!_isLoading) ...[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(onPressed: _runDeselection, child: const Text('确认退课')),
+        ],
+      ],
+    );
+  }
 }
 
 Widget buildStepIndicator(BuildContext context, int currentStep) {

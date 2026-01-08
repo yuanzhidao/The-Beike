@@ -34,6 +34,8 @@ class UserInfo extends BaseDataClass {
 
   factory UserInfo.fromJson(Map<String, dynamic> json) =>
       _$UserInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$UserInfoToJson(this);
 }
 
@@ -63,6 +65,8 @@ class UserLoginIntegratedData extends BaseDataClass {
 
   factory UserLoginIntegratedData.fromJson(Map<String, dynamic> json) =>
       _$UserLoginIntegratedDataFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$UserLoginIntegratedDataToJson(this);
 }
 
@@ -111,6 +115,8 @@ class CourseGradeItem extends BaseDataClass {
 
   factory CourseGradeItem.fromJson(Map<String, dynamic> json) =>
       _$CourseGradeItemFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseGradeItemToJson(this);
 }
 
@@ -200,6 +206,8 @@ class ClassItem extends BaseDataClass {
 
   factory ClassItem.fromJson(Map<String, dynamic> json) =>
       _$ClassItemFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$ClassItemToJson(this);
 }
 
@@ -256,6 +264,8 @@ class ClassPeriod extends BaseDataClass {
 
   factory ClassPeriod.fromJson(Map<String, dynamic> json) =>
       _$ClassPeriodFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$ClassPeriodToJson(this);
 }
 
@@ -288,6 +298,8 @@ class CalendarDay extends BaseDataClass {
 
   factory CalendarDay.fromJson(Map<String, dynamic> json) =>
       _$CalendarDayFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CalendarDayToJson(this);
 }
 
@@ -303,8 +315,31 @@ class TermInfo extends BaseDataClass {
     return {'year': year, 'season': season};
   }
 
+  factory TermInfo.autoDetect() {
+    final now = DateTime.now();
+    final month = now.month;
+    String year;
+    int season;
+
+    if ([1, 8, 9, 10, 11, 12].contains(month)) {
+      if (month == 1) {
+        year = '${now.year - 1}-${now.year}';
+      } else {
+        year = '${now.year}-${now.year + 1}';
+      }
+      season = 1;
+    } else {
+      year = '${now.year - 1}-${now.year}';
+      season = 2;
+    }
+
+    return TermInfo(year: year, season: season);
+  }
+
   factory TermInfo.fromJson(Map<String, dynamic> json) =>
       _$TermInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$TermInfoToJson(this);
 }
 
@@ -333,6 +368,8 @@ class CurriculumIntegratedData extends BaseDataClass {
 
   factory CurriculumIntegratedData.fromJson(Map<String, dynamic> json) =>
       _$CurriculumIntegratedDataFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CurriculumIntegratedDataToJson(this);
 
   int getMaxValidWeekIndex({int maxWeeks = 50}) {
@@ -566,6 +603,8 @@ class CourseDetail extends BaseDataClass {
 
   factory CourseDetail.fromJson(Map<String, dynamic> json) =>
       _$CourseDetailFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseDetailToJson(this);
 }
 
@@ -620,6 +659,8 @@ class CourseInfo extends BaseDataClass {
 
   factory CourseInfo.fromJson(Map<String, dynamic> json) =>
       _$CourseInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseInfoToJson(this);
 }
 
@@ -646,6 +687,8 @@ class CourseTab extends BaseDataClass {
 
   factory CourseTab.fromJson(Map<String, dynamic> json) =>
       _$CourseTabFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseTabToJson(this);
 }
 
@@ -713,5 +756,83 @@ class CourseSelectionState extends BaseDataClass {
 
   factory CourseSelectionState.fromJson(Map<String, dynamic> json) =>
       _$CourseSelectionStateFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseSelectionStateToJson(this);
+}
+
+@JsonSerializable()
+class ExamInfo extends BaseDataClass {
+  final String courseId; // 课程代码
+  final String examRange; // 考试范围 如"期末"
+  final String? examRangeAlt; // 考试范围英文
+  final String courseName; // 课程名称
+  final String? courseNameAlt; // 课程名称英文
+  final String termYear; // 学年
+  final int termSeason; // 学期
+  final String examRoom; // 考试地点
+  final String? examRoomAlt; // 考试地点英文
+  final String? examBuilding; // 教学楼名称
+  final String? examBuildingAlt; // 教学楼名称英文
+  final int examWeek; // 考试周次
+  final DateTime examDate; // 考试日期
+  final String examDateDisplay; // 考试日期显示 如"12月29日"
+  final String? examDateDisplayAlt; // 考试日期显示英文
+  final String examDayName; // 星期名称 如"星期一"
+  final String? examDayNameAlt; // 星期名称英文
+  final String examTime; // 考试时间 如"13:30-15:30"
+  final int minorId; // 考试小节编号
+
+  ExamInfo({
+    required this.courseId,
+    required this.examRange,
+    this.examRangeAlt,
+    required this.courseName,
+    this.courseNameAlt,
+    required this.termYear,
+    required this.termSeason,
+    required this.examRoom,
+    this.examRoomAlt,
+    this.examBuilding,
+    this.examBuildingAlt,
+    required this.examWeek,
+    required this.examDate,
+    required this.examDateDisplay,
+    this.examDateDisplayAlt,
+    required this.examDayName,
+    this.examDayNameAlt,
+    required this.examTime,
+    required this.minorId,
+  });
+
+  @override
+  Map<String, dynamic> getEssentials() {
+    return {
+      'courseId': courseId,
+      'courseName': courseName,
+      'examDate': examDate.toString(),
+      'examTime': examTime,
+    };
+  }
+
+  factory ExamInfo.fromJson(Map<String, dynamic> json) =>
+      _$ExamInfoFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ExamInfoToJson(this);
+
+  DateTime? getStartTime() {
+    try {
+      final utcDate = examDate.toLocal(); // Server returns UTC date
+      final startTimeStr = examTime.split('-')[0];
+      final timeParts = startTimeStr.split(':');
+      if (timeParts.length != 2) return null;
+      final hour = int.tryParse(timeParts[0]);
+      final minute = int.tryParse(timeParts[1]);
+      if (hour == null || minute == null) return null;
+      return DateTime(utcDate.year, utcDate.month, utcDate.day, hour, minute);
+    } catch (e) {
+      return null;
+    }
+  }
 }

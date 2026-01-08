@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ustb_sso/ustb_sso.dart';
 import '/services/provider.dart';
@@ -35,9 +36,6 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
   void initState() {
     super.initState();
     _serviceProvider.addListener(_onServiceStatusChanged);
-
-    // Switch to production service when opening dialog
-    _serviceProvider.switchCoursesService(CoursesServiceType.production);
   }
 
   @override
@@ -78,7 +76,9 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
       widget.onLoginSuccess?.call("sso", cookie);
     } catch (e) {
       // Error handling is done by the auth widget
-      print('Login failed: $e');
+      if (kDebugMode) {
+        print('Login failed: $e');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -91,7 +91,7 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
   void _onUpdateSmsPhone(String phoneNumber) {
     final serviceProvider = ServiceProvider.instance;
     final existingData = serviceProvider.storeService
-        .getStore<UserLoginIntegratedData>(
+        .getConfig<UserLoginIntegratedData>(
           "course_account_data",
           UserLoginIntegratedData.fromJson,
         );
@@ -101,7 +101,7 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
       cookie: existingData?.cookie,
       lastSmsPhone: phoneNumber,
     );
-    serviceProvider.storeService.putStore<UserLoginIntegratedData>(
+    serviceProvider.storeService.putConfig<UserLoginIntegratedData>(
       "course_account_data",
       updatedData,
     );
@@ -138,7 +138,7 @@ class _SsoLoginDialogState extends State<_SsoLoginDialog> {
     // Get default SMS phone from cache
     final serviceProvider = ServiceProvider.instance;
     final cachedData = serviceProvider.storeService
-        .getStore<UserLoginIntegratedData>(
+        .getConfig<UserLoginIntegratedData>(
           "course_account_data",
           UserLoginIntegratedData.fromJson,
         );
