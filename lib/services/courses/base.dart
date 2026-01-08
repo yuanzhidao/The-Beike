@@ -48,6 +48,8 @@ abstract class BaseCoursesService with BaseService {
 
   Future<bool> sendCourseSelection(TermInfo termInfo, CourseInfo courseInfo);
 
+  Future<bool> sendCourseDeselection(TermInfo termInfo, CourseInfo courseInfo);
+
   Future<void> login() async {
     await doLogin();
     if (isOnline) {

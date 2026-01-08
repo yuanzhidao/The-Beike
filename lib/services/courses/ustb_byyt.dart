@@ -857,6 +857,61 @@ class UstbByytService extends BaseCoursesService {
   }
 
   @override
+  Future<bool> sendCourseDeselection(
+    TermInfo termInfo,
+    CourseInfo courseInfo,
+  ) async {
+    if (status == ServiceStatus.offline || _cookie == null) {
+      throw const CourseServiceOffline();
+    }
+
+    http.Response response;
+    try {
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        isForSubmission: true,
+        tabId: courseInfo.fromTabId,
+        classId: courseInfo.classDetail?.classId ?? '',
+        courseId: courseInfo.courseId,
+      );
+
+      final formData = params.toFormData();
+
+      formData['pageNum'] = '1';
+      formData['pageSize'] = '100';
+
+      response = await http.post(
+        Uri.parse('$baseUrl/Xsxk/tuike'),
+        headers: _getHeaders(),
+        body: formData,
+      );
+    } catch (e) {
+      throw CourseServiceNetworkError(
+        'Failed to send course deselection request',
+        e,
+      );
+    }
+
+    CourseServiceException.raiseForStatus(response.statusCode, setError);
+
+    try {
+      final data = json.decode(response.body);
+
+      if (data['jg'] != 1 && data['jg'] != '1') {
+        throw CourseServiceBadRequest('${data['message'] ?? 'No msg'}');
+      }
+      return true;
+    } on CourseServiceException {
+      rethrow;
+    } catch (e) {
+      throw CourseServiceBadResponse(
+        'Failed to parse course deselection response',
+        e,
+      );
+    }
+  }
+
+  @override
   CourseSelectionState getCourseSelectionState() {
     return _selectionState;
   }

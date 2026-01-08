@@ -775,6 +775,7 @@ class _CourseListPageState extends State<CourseListPage> {
                           // Ensure refreshed
                           setState(() {});
                         },
+                        onRefreshRequired: _loadCourses,
                         selectedCourseIds: _selectedCourseIds,
                       );
                     },
@@ -965,7 +966,8 @@ class _CourseTableRow extends StatefulWidget {
   final bool isExpanded;
   final List<double> columnWidths;
   final VoidCallback onToggle;
-  final VoidCallback? onSelectionChanged;
+  final VoidCallback onSelectionChanged;
+  final VoidCallback onRefreshRequired;
   final List<String> selectedCourseIds;
 
   const _CourseTableRow({
@@ -974,7 +976,8 @@ class _CourseTableRow extends StatefulWidget {
     required this.isExpanded,
     required this.columnWidths,
     required this.onToggle,
-    this.onSelectionChanged,
+    required this.onSelectionChanged,
+    required this.onRefreshRequired,
     required this.selectedCourseIds,
   });
 
@@ -1203,6 +1206,7 @@ class _CourseTableRowState extends State<_CourseTableRow>
           isExpanded: widget.isExpanded,
           onToggle: widget.onToggle,
           onSelectionChanged: widget.onSelectionChanged,
+          onRefreshRequired: widget.onRefreshRequired,
           selectedCourseIds: widget.selectedCourseIds,
         ),
       ],
