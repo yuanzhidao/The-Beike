@@ -65,6 +65,8 @@ class LoginRequirements extends BaseDataClass {
 
   factory LoginRequirements.fromJson(Map<String, dynamic> json) =>
       _$LoginRequirementsFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$LoginRequirementsToJson(this);
 }
 
@@ -106,6 +108,8 @@ class NetUserInfo extends BaseDataClass {
 
   factory NetUserInfo.fromJson(Map<String, dynamic> json) =>
       _$NetUserInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$NetUserInfoToJson(this);
 }
 
@@ -123,6 +127,8 @@ class NetUserIntegratedData extends BaseDataClass {
 
   factory NetUserIntegratedData.fromJson(Map<String, dynamic> json) =>
       _$NetUserIntegratedDataFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$NetUserIntegratedDataToJson(this);
 }
 
@@ -140,6 +146,8 @@ class MacDevice extends BaseDataClass {
 
   factory MacDevice.fromJson(Map<String, dynamic> json) =>
       _$MacDeviceFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$MacDeviceToJson(this);
 }
 
@@ -181,6 +189,8 @@ class MonthlyBill extends BaseDataClass {
 
   factory MonthlyBill.fromJson(Map<String, dynamic> json) =>
       _$MonthlyBillFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$MonthlyBillToJson(this);
 }
 
@@ -199,5 +209,7 @@ class RealtimeUsage extends BaseDataClass {
 
   factory RealtimeUsage.fromJson(Map<String, dynamic> json) =>
       _$RealtimeUsageFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$RealtimeUsageToJson(this);
 }

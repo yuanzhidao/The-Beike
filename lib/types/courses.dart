@@ -34,6 +34,8 @@ class UserInfo extends BaseDataClass {
 
   factory UserInfo.fromJson(Map<String, dynamic> json) =>
       _$UserInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$UserInfoToJson(this);
 }
 
@@ -63,6 +65,8 @@ class UserLoginIntegratedData extends BaseDataClass {
 
   factory UserLoginIntegratedData.fromJson(Map<String, dynamic> json) =>
       _$UserLoginIntegratedDataFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$UserLoginIntegratedDataToJson(this);
 }
 
@@ -111,6 +115,8 @@ class CourseGradeItem extends BaseDataClass {
 
   factory CourseGradeItem.fromJson(Map<String, dynamic> json) =>
       _$CourseGradeItemFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseGradeItemToJson(this);
 }
 
@@ -200,6 +206,8 @@ class ClassItem extends BaseDataClass {
 
   factory ClassItem.fromJson(Map<String, dynamic> json) =>
       _$ClassItemFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$ClassItemToJson(this);
 }
 
@@ -256,6 +264,8 @@ class ClassPeriod extends BaseDataClass {
 
   factory ClassPeriod.fromJson(Map<String, dynamic> json) =>
       _$ClassPeriodFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$ClassPeriodToJson(this);
 }
 
@@ -288,6 +298,8 @@ class CalendarDay extends BaseDataClass {
 
   factory CalendarDay.fromJson(Map<String, dynamic> json) =>
       _$CalendarDayFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CalendarDayToJson(this);
 }
 
@@ -326,6 +338,8 @@ class TermInfo extends BaseDataClass {
 
   factory TermInfo.fromJson(Map<String, dynamic> json) =>
       _$TermInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$TermInfoToJson(this);
 }
 
@@ -354,6 +368,8 @@ class CurriculumIntegratedData extends BaseDataClass {
 
   factory CurriculumIntegratedData.fromJson(Map<String, dynamic> json) =>
       _$CurriculumIntegratedDataFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CurriculumIntegratedDataToJson(this);
 
   int getMaxValidWeekIndex({int maxWeeks = 50}) {
@@ -587,6 +603,8 @@ class CourseDetail extends BaseDataClass {
 
   factory CourseDetail.fromJson(Map<String, dynamic> json) =>
       _$CourseDetailFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseDetailToJson(this);
 }
 
@@ -641,6 +659,8 @@ class CourseInfo extends BaseDataClass {
 
   factory CourseInfo.fromJson(Map<String, dynamic> json) =>
       _$CourseInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseInfoToJson(this);
 }
 
@@ -667,6 +687,8 @@ class CourseTab extends BaseDataClass {
 
   factory CourseTab.fromJson(Map<String, dynamic> json) =>
       _$CourseTabFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseTabToJson(this);
 }
 
@@ -734,6 +756,8 @@ class CourseSelectionState extends BaseDataClass {
 
   factory CourseSelectionState.fromJson(Map<String, dynamic> json) =>
       _$CourseSelectionStateFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$CourseSelectionStateToJson(this);
 }
 
@@ -793,6 +817,8 @@ class ExamInfo extends BaseDataClass {
 
   factory ExamInfo.fromJson(Map<String, dynamic> json) =>
       _$ExamInfoFromJson(json);
+
+  @override
   Map<String, dynamic> toJson() => _$ExamInfoToJson(this);
 
   DateTime? getStartTime() {

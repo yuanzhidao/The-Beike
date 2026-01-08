@@ -212,8 +212,8 @@ class _UpdatePageState extends State<UpdatePage> {
                   Row(
                     children: [
                       Icon(Icons.cloud_queue_outlined, size: 18),
-                      const SizedBox(width: 8),
-                      const Text('最新版本：'),
+                      SizedBox(width: 8),
+                      Text('最新版本：'),
                     ],
                   ),
                   Text('正在检查更新...'),
