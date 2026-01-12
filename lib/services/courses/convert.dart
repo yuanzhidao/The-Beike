@@ -30,7 +30,7 @@ extension CourseGradeItemUstbByytExtension on CourseGradeItem {
       examType: data['khfs'] as String?,
       hours: double.tryParse(data['xs']?.toString() ?? '0') ?? 0,
       credit: double.tryParse(data['xf']?.toString() ?? '0') ?? 0,
-      score: double.tryParse(data['zpcj']?.toString() ?? '0') ?? 0,
+      score: double.tryParse(data['zpzscj']?.toString() ?? '0') ?? 0,
     );
   }
 }

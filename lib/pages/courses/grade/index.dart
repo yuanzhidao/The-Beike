@@ -50,16 +50,6 @@ class _GradePageState extends State<GradePage> {
   Future<void> _loadGrades() async {
     final service = _serviceProvider.coursesService;
 
-    if (mounted && _allGrades != null) {
-      setState(() {
-        _allGrades = null;
-        _filteredGrades = null;
-        _errorMessage = null;
-        _isLoading = false;
-      });
-      return;
-    }
-
     if (mounted && service.isOnline) {
       setState(() {
         _isLoading = true;
