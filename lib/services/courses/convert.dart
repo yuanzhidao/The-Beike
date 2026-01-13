@@ -28,9 +28,9 @@ extension CourseGradeItemUstbByytExtension on CourseGradeItem {
       makeupStatus: data['bkcx'] as String?,
       makeupStatusAlt: data['bkcx_en'] as String?,
       examType: data['khfs'] as String?,
-      hours: double.parse(data['xs']?.toString() ?? '0'),
-      credit: double.parse(data['xf']?.toString() ?? '0'),
-      score: double.parse(data['zpcj']?.toString() ?? '0'),
+      hours: double.tryParse(data['xs']?.toString() ?? '0') ?? 0,
+      credit: double.tryParse(data['xf']?.toString() ?? '0') ?? 0,
+      score: double.tryParse(data['zpzscj']?.toString() ?? '0') ?? 0,
     );
   }
 }

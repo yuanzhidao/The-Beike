@@ -210,12 +210,9 @@ class SyncService extends BaseSyncService {
     ).replace(queryParameters: {'deviceId': deviceId, 'groupId': groupId});
 
     List<int> bodyBytes;
-    if (config.isEmpty) {
-      bodyBytes = [];
-    } else {
-      final jsonString = json.encode(config);
-      bodyBytes = gzip.encode(utf8.encode(jsonString));
-    }
+
+    final jsonString = json.encode(config);
+    bodyBytes = zlib.encode(utf8.encode(jsonString));
 
     http.Response response;
     try {
@@ -223,7 +220,7 @@ class SyncService extends BaseSyncService {
         uri,
         headers: {
           'Content-Type': 'application/octet-stream',
-          'Content-Encoding': 'gzip',
+          'Content-Encoding': 'deflate',
           'User-Agent': userAgent,
         },
         body: bodyBytes,
@@ -239,7 +236,7 @@ class SyncService extends BaseSyncService {
         return null;
       }
       try {
-        final decodedBytes = gzip.decode(response.bodyBytes);
+        final decodedBytes = zlib.decode(response.bodyBytes);
         final decodedString = utf8.decode(decodedBytes);
         final result = json.decode(decodedString) as Map<String, dynamic>;
         recordSyncStatus(SyncStatusType.success);
