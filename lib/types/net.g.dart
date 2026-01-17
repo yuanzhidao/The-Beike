@@ -6,27 +6,34 @@ part of 'net.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-LoginRequirements _$LoginRequirementsFromJson(Map<String, dynamic> json) =>
-    LoginRequirements(
+NetDashboardSessionState _$NetDashboardSessionStateFromJson(
+  Map<String, dynamic> json,
+) =>
+    NetDashboardSessionState(
         checkCode: json['checkCode'] as String,
-        tryTimes: (json['tryTimes'] as num).toInt(),
-        tryTimesThreshold: (json['tryTimesThreshold'] as num).toInt(),
+        needRandomCode: json['needRandomCode'] as bool,
+        cookie: json['cookie'] as String,
+        csrfTokens: (json['csrfTokens'] as Map<String, dynamic>?)?.map(
+          (k, e) => MapEntry(k, e as String),
+        ),
       )
       ..$lastUpdateTime = _$JsonConverterFromJson<String, DateTime>(
         json[r'$lastUpdateTime'],
         const UTCConverter().fromJson,
       );
 
-Map<String, dynamic> _$LoginRequirementsToJson(LoginRequirements instance) =>
-    <String, dynamic>{
-      r'$lastUpdateTime': _$JsonConverterToJson<String, DateTime>(
-        instance.$lastUpdateTime,
-        const UTCConverter().toJson,
-      ),
-      'checkCode': instance.checkCode,
-      'tryTimes': instance.tryTimes,
-      'tryTimesThreshold': instance.tryTimesThreshold,
-    };
+Map<String, dynamic> _$NetDashboardSessionStateToJson(
+  NetDashboardSessionState instance,
+) => <String, dynamic>{
+  r'$lastUpdateTime': _$JsonConverterToJson<String, DateTime>(
+    instance.$lastUpdateTime,
+    const UTCConverter().toJson,
+  ),
+  'checkCode': instance.checkCode,
+  'needRandomCode': instance.needRandomCode,
+  'cookie': instance.cookie,
+  'csrfTokens': instance.csrfTokens,
+};
 
 Value? _$JsonConverterFromJson<Json, Value>(
   Object? json,
@@ -37,38 +44,6 @@ Json? _$JsonConverterToJson<Json, Value>(
   Value? value,
   Json? Function(Value value) toJson,
 ) => value == null ? null : toJson(value);
-
-NetUserInfo _$NetUserInfoFromJson(Map<String, dynamic> json) =>
-    NetUserInfo(
-        account: json['account'] as String,
-        subscription: json['subscription'] as String,
-        status: json['status'] as String,
-        leftFlow: json['leftFlow'] as String?,
-        leftTime: json['leftTime'] as String?,
-        leftMoney: json['leftMoney'] as String?,
-        overDate: json['overDate'] as String?,
-        onlineState: json['onlineState'] as String?,
-      )
-      ..$lastUpdateTime = _$JsonConverterFromJson<String, DateTime>(
-        json[r'$lastUpdateTime'],
-        const UTCConverter().fromJson,
-      );
-
-Map<String, dynamic> _$NetUserInfoToJson(NetUserInfo instance) =>
-    <String, dynamic>{
-      r'$lastUpdateTime': _$JsonConverterToJson<String, DateTime>(
-        instance.$lastUpdateTime,
-        const UTCConverter().toJson,
-      ),
-      'account': instance.account,
-      'subscription': instance.subscription,
-      'status': instance.status,
-      'leftFlow': instance.leftFlow,
-      'leftTime': instance.leftTime,
-      'leftMoney': instance.leftMoney,
-      'overDate': instance.overDate,
-      'onlineState': instance.onlineState,
-    };
 
 NetUserIntegratedData _$NetUserIntegratedDataFromJson(
   Map<String, dynamic> json,
@@ -94,7 +69,14 @@ Map<String, dynamic> _$NetUserIntegratedDataToJson(
 };
 
 MacDevice _$MacDeviceFromJson(Map<String, dynamic> json) =>
-    MacDevice(name: json['name'] as String, mac: json['mac'] as String)
+    MacDevice(
+        name: json['name'] as String,
+        mac: json['mac'] as String,
+        isOnline: json['isOnline'] as bool,
+        lastOnlineTime: json['lastOnlineTime'] as String,
+        lastOnlineIp: json['lastOnlineIp'] as String,
+        isDumbDevice: json['isDumbDevice'] as bool,
+      )
       ..$lastUpdateTime = _$JsonConverterFromJson<String, DateTime>(
         json[r'$lastUpdateTime'],
         const UTCConverter().fromJson,
@@ -107,6 +89,10 @@ Map<String, dynamic> _$MacDeviceToJson(MacDevice instance) => <String, dynamic>{
   ),
   'name': instance.name,
   'mac': instance.mac,
+  'isOnline': instance.isOnline,
+  'lastOnlineTime': instance.lastOnlineTime,
+  'lastOnlineIp': instance.lastOnlineIp,
+  'isDumbDevice': instance.isDumbDevice,
 };
 
 MonthlyBill _$MonthlyBillFromJson(Map<String, dynamic> json) =>

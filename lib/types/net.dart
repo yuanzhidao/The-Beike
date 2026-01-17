@@ -41,76 +41,106 @@ extension NetworkStatusExtension on NetworkStatus {
 }
 
 @JsonSerializable()
-class LoginRequirements extends BaseDataClass {
+class NetDashboardSessionState extends BaseDataClass {
   final String checkCode;
-  final int tryTimes;
-  final int tryTimesThreshold;
+  final bool needRandomCode;
+  final String cookie;
+  final Map<String, String> csrfTokens;
 
-  LoginRequirements({
+  NetDashboardSessionState({
     required this.checkCode,
-    required this.tryTimes,
-    required this.tryTimesThreshold,
-  });
-
-  bool get isNeedExtraCode => tryTimes >= tryTimesThreshold;
+    required this.needRandomCode,
+    required this.cookie,
+    Map<String, String>? csrfTokens,
+  }) : csrfTokens = csrfTokens ?? {};
 
   @override
   Map<String, dynamic> getEssentials() {
     return {
       'checkCode': checkCode,
-      'tryTimes': tryTimes,
-      'tryTimesThreshold': tryTimesThreshold,
+      'needRandomCode': needRandomCode,
+      'cookie': cookie,
+      'csrfTokens': csrfTokens,
     };
   }
 
-  factory LoginRequirements.fromJson(Map<String, dynamic> json) =>
-      _$LoginRequirementsFromJson(json);
+  factory NetDashboardSessionState.fromJson(Map<String, dynamic> json) =>
+      _$NetDashboardSessionStateFromJson(json);
 
   @override
-  Map<String, dynamic> toJson() => _$LoginRequirementsToJson(this);
+  Map<String, dynamic> toJson() => _$NetDashboardSessionStateToJson(this);
 }
 
-@JsonSerializable()
+class NetUserPlan extends BaseDataClass {
+  final int planId;
+  final String planName;
+  final String planDescription;
+  final double freeFlow;
+  final double unitFlowCost;
+  final int maxLogins;
+
+  NetUserPlan({
+    required this.planId,
+    required this.planName,
+    required this.planDescription,
+    required this.freeFlow,
+    required this.unitFlowCost,
+    required this.maxLogins,
+  });
+
+  @override
+  Map<String, dynamic> getEssentials() {
+    return {'planId': planId, 'planName': planName};
+  }
+
+  @override
+  Map<String, dynamic> toJson() => getEssentials();
+}
+
 class NetUserInfo extends BaseDataClass {
-  final String account;
-  final String subscription;
-  final String status;
-  final String? leftFlow;
-  final String? leftTime;
-  final String? leftMoney;
-  final String? overDate;
-  final String? onlineState;
+  final String realName;
+  final String accountName;
+
+  final int? bandwidthDown;
+  final int? bandwidthUp;
+
+  final double internetDownFlow;
+  final double internetUpFlow;
+
+  final double flowLeft;
+  final double flowUsed;
+
+  final double moneyLeft;
+  final double moneyUsed;
+
+  final NetUserPlan? plan;
 
   NetUserInfo({
-    required this.account,
-    required this.subscription,
-    required this.status,
-    this.leftFlow,
-    this.leftTime,
-    this.leftMoney,
-    this.overDate,
-    this.onlineState,
+    required this.realName,
+    required this.accountName,
+    this.bandwidthDown,
+    this.bandwidthUp,
+    required this.internetDownFlow,
+    required this.internetUpFlow,
+    required this.flowLeft,
+    required this.flowUsed,
+    required this.moneyLeft,
+    required this.moneyUsed,
+    this.plan,
   });
 
   @override
   Map<String, dynamic> getEssentials() {
     return {
-      'account': account,
-      'subscription': subscription,
-      'status': status,
-      'leftFlow': leftFlow,
-      'leftTime': leftTime,
-      'leftMoney': leftMoney,
-      'overDate': overDate,
-      'onlineState': onlineState,
+      'realName': realName,
+      'accountName': accountName,
+      'flowLeft': flowLeft,
+      'moneyLeft': moneyLeft,
     };
   }
 
-  factory NetUserInfo.fromJson(Map<String, dynamic> json) =>
-      _$NetUserInfoFromJson(json);
-
   @override
-  Map<String, dynamic> toJson() => _$NetUserInfoToJson(this);
+  Map<String, dynamic> toJson() => getEssentials();
 }
 
 @JsonSerializable()
@@ -136,12 +166,30 @@ class NetUserIntegratedData extends BaseDataClass {
 class MacDevice extends BaseDataClass {
   final String name;
   final String mac;
+  final bool isOnline;
+  final String lastOnlineTime;
+  final String lastOnlineIp;
+  final bool isDumbDevice;
 
-  MacDevice({required this.name, required this.mac});
+  MacDevice({
+    required this.name,
+    required this.mac,
+    required this.isOnline,
+    required this.lastOnlineTime,
+    required this.lastOnlineIp,
+    required this.isDumbDevice,
+  });
 
   @override
   Map<String, dynamic> getEssentials() {
-    return {'name': name, 'mac': mac};
+    return {
+      'name': name,
+      'mac': mac,
+      'isOnline': isOnline,
+      'lastOnlineTime': lastOnlineTime,
+      'lastOnlineIp': lastOnlineIp,
+      'isDumbDevice': isDumbDevice,
+    };
   }
 
   factory MacDevice.fromJson(Map<String, dynamic> json) =>

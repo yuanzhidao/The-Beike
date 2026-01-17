@@ -10,6 +10,9 @@ class NetServiceException implements Exception {
     void Function()? setOfflineCallback,
   ]) {
     if (statusCode < 200 || statusCode >= 300) {
+      if (setOfflineCallback != null && statusCode >= 300 && statusCode < 400) {
+        setOfflineCallback();
+      }
       throw NetServiceNetworkError('HTTP $statusCode');
     }
   }

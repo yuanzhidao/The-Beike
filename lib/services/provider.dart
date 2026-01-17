@@ -257,12 +257,12 @@ class ServiceProvider extends ChangeNotifier {
   Future<void> loginToNetService(
     String username,
     String password, {
-    String? extraCode,
+    String? randomCode,
   }) async {
     await netService.loginWithPassword(
       username,
       password,
-      extraCode: extraCode,
+      randomCode: randomCode,
     );
     notifyListeners();
   }

@@ -40,20 +40,61 @@ class DrcomNetService extends BaseNetService {
     }
   }
 
-  Uri _buildUri(String path, [Map<String, String>? query]) {
-    return Uri.parse('$baseUrl/$path').replace(queryParameters: query);
+  Future<http.Response> _get(
+    String path, {
+    Map<String, String>? query,
+    String? forceContentType,
+    bool followRedirects = false,
+  }) async {
+    final uri = Uri.parse('$baseUrl/$path').replace(queryParameters: query);
+    final request = http.Request('GET', uri);
+    request.headers.addAll(_buildHeaders());
+    request.followRedirects = followRedirects;
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    if (forceContentType != null) {
+      response.headers["content-type"] = forceContentType;
+    }
+    return response;
+  }
+
+  Future<http.Response> _post(
+    String path, {
+    Map<String, String>? data,
+    String? forceContentType,
+    bool followRedirects = false,
+  }) async {
+    final uri = Uri.parse('$baseUrl/$path');
+    final request = http.Request('POST', uri);
+    request.headers.addAll(_buildHeaders(includeFormContentType: data != null));
+    if (data != null) {
+      request.bodyFields = data;
+    }
+    request.followRedirects = followRedirects;
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    if (forceContentType != null) {
+      response.headers["content-type"] = forceContentType;
+    }
+    return response;
   }
 
   @override
-  Future<LoginRequirements> doGetLoginRequirements() async {
-    final response = await _client.get(
-      _buildUri('nav_login'),
-      headers: _buildHeaders(),
+  Future<NetDashboardSessionState> doGetSessionState() async {
+    final response = await _get(
+      'Self/login/',
+      forceContentType: 'text/html; charset=utf-8',
     );
     NetServiceException.raiseForStatus(response.statusCode);
     _updateCookie(response);
+
+    final sessionState = NetDashboardSessionStateExtension.parseFromHtml(
+      response.body,
+      _cookie ?? '',
+    );
+
     await getCodeImage(); // This request is to make the session valid
-    return LoginRequirementsExtension.parse(response.body);
+    return sessionState;
   }
 
   @override
@@ -61,7 +102,7 @@ class DrcomNetService extends BaseNetService {
     required String username,
     required String passwordMd5,
     required String checkCode,
-    String? extraCode,
+    String? randomCode,
   }) async {
     if (username.isEmpty) {
       throw const NetServiceException('Missing username');
@@ -70,30 +111,40 @@ class DrcomNetService extends BaseNetService {
       throw const NetServiceException('Missing password');
     }
 
-    final response = await _client.post(
-      _buildUri('LoginAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {
+    final response = await _post(
+      'Self/login/verify',
+      data: {
+        'checkcode': checkCode,
         'account': username,
         'password': passwordMd5,
-        'code': extraCode ?? '',
-        'checkcode': checkCode,
-        'Submit': 'Login',
+        'code': randomCode ?? '',
       },
     );
-    NetServiceException.raiseForStatus(response.statusCode, setOffline);
-    _updateCookie(response);
-    if (!response.body.contains('class="account"')) {
-      throw const NetServiceBadResponse('Unexpected login response');
+
+    // Check for redirect to dashboard (success) or back to login (failure)
+    if (response.statusCode == 302) {
+      final location = response.headers['location'] ?? '';
+      if (location.contains('dashboard')) {
+        _updateCookie(response);
+        return;
+      } else {
+        throw const NetServiceBadResponse(
+          'Login failed: redirected to login page',
+        );
+      }
     }
+
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+    throw const NetServiceBadResponse('Unexpected login response');
   }
 
   @override
   Future<void> doLogout() async {
-    final response = await _client.get(
-      _buildUri('LogoutAction.action'),
-      headers: _buildHeaders(),
+    final response = await _get(
+      'Self/login/logout',
+      forceContentType: 'text/html; charset=utf-8',
     );
+    // Expect 302 redirect to /Self/
     if (response.statusCode >= 400) {
       if (kDebugMode) {
         print('Net service logout failed: ${response.statusCode}');
@@ -104,10 +155,9 @@ class DrcomNetService extends BaseNetService {
 
   @override
   Future<Uint8List> getCodeImage() async {
-    final randomNum = Random().nextDouble().toString();
-    final response = await _client.get(
-      _buildUri('RandomCodeAction.action', {'randomNum': randomNum}),
-      headers: _buildHeaders(),
+    final response = await _get(
+      'Self/login/randomCode',
+      query: {'t': Random().nextDouble().toString()},
     );
     NetServiceException.raiseForStatus(response.statusCode);
     _updateCookie(response);
@@ -121,8 +171,16 @@ class DrcomNetService extends BaseNetService {
     }
 
     try {
-      final jsonStr = await _loadUserInfoJson();
-      return NetUserInfoExtension.parse(jsonStr);
+      final response = await _get(
+        'Self/dashboard',
+        forceContentType: 'text/html; charset=utf-8',
+      );
+      NetServiceException.raiseForStatus(response.statusCode, setOffline);
+      _updateCookie(response);
+
+      await refreshCsrfFrom('Self/dashboard');
+
+      return NetUserInfoExtension.parseFromHtml(response.body);
     } on NetServiceException {
       rethrow;
     } catch (e) {
@@ -131,56 +189,88 @@ class DrcomNetService extends BaseNetService {
   }
 
   @override
-  Future<void> doRetainMacs(List<String> normalizedMacs) async {
-    // Drcom's f**king API only supports passing the MACs you want to retain
-    // to archive the effect of unbinding other MACs, LOL. 😝 What a shit!
-    final response = await _client.post(
-      _buildUri('nav_unbindMACAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {'macStr': normalizedMacs.join(';'), 'Submit': '解绑'},
+  Future<void> doBindMac({
+    required String macAddress,
+    required String terminalName,
+    required bool isDumbTerminal,
+  }) async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final response = await _post(
+      'Self/service/bindMac',
+      data: {
+        'macAddress': macAddress.toUpperCase(),
+        'terminalName': terminalName,
+        'terminalType': isDumbTerminal ? '1' : '0',
+      },
+      forceContentType: 'application/json; charset=utf-8',
     );
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+
+    try {
+      final decoded = json.decode(response.body);
+      if (decoded['state'] != 'success') {
+        throw NetServiceBadResponse(
+          'MAC binding failed: ${decoded['data'] ?? 'Unknown error'}',
+        );
+      }
+    } catch (e) {
+      if (e is NetServiceException) rethrow;
+      throw NetServiceBadResponse('Failed to parse MAC binding response', e);
+    }
+  }
+
+  @override
+  Future<void> doUnbindMac(String macAddress) async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+      cachedSessionState!,
+      'Self/service/unbindmac',
+    );
+
+    final response = await _get(
+      'Self/service/unbindmac',
+      query: {'mac': macAddress.toUpperCase(), 'ajaxCsrfToken': csrfToken},
+    );
+    // Expect 302 redirect to /Self/service/myMac
+    if (response.statusCode == 302) {
+      final location = response.headers['location'] ?? '';
+      if (location.contains('myMac')) {
+        return;
+      }
+    }
     NetServiceException.raiseForStatus(response.statusCode, setOffline);
   }
 
   @override
-  Future<List<MacDevice>> getBoundedMac() async {
-    final html = await () async {
-      final response = await _client.get(
-        _buildUri('nav_unBandMacJsp'),
-        headers: _buildHeaders(),
-      );
-      NetServiceException.raiseForStatus(response.statusCode, setOffline);
-      return response.body;
-    }();
-    return MacDeviceExtension.parse(html);
-  }
+  Future<List<MacDevice>> getDeviceList() async {
+    await refreshCsrfFrom('Self/service/myMac');
 
-  Future<Map<String, dynamic>> _loadUserInfoJson({String? macAddress}) async {
-    final query = <String, String>{
-      't': Random().nextDouble().toStringAsFixed(6),
-    };
-    if (macAddress != null && macAddress.isNotEmpty) {
-      query['macStr'] = macAddress;
-    }
-    query['Submit'] = '解绑';
-
-    final response = await _client.get(
-      _buildUri('refreshaccount', query),
-      headers: _buildHeaders(),
+    final response = await _get(
+      'Self/service/getMacList',
+      query: {
+        'pageSize': '100', // Fetch enough to cover most users
+        'pageNumber': '1',
+        'sortName': '2',
+        'sortOrder': 'desc',
+        '_': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+      forceContentType: 'application/json; charset=utf-8',
     );
     NetServiceException.raiseForStatus(response.statusCode, setOffline);
     _updateCookie(response);
+
     try {
-      final decoded = json.decode(response.body);
-      return decoded['note'] as Map<String, dynamic>;
+      final jsonMap = json.decode(response.body);
+      return MacDeviceExtension.parse(jsonMap);
     } catch (e) {
-      if (e is NetServiceException) rethrow;
-      throw NetServiceBadResponse('Failed to parse user info', e);
+      throw NetServiceBadResponse('Failed to parse mac list', e);
     }
   }
 
   @override
-  Future<List<MonthlyBill>> getMonthlyBill({required int year}) async {
+  Future<List<MonthlyBill>> getMonthPay({required int year}) async {
     if (year <= 0) {
       throw const NetServiceException('Invalid year');
     }
@@ -189,19 +279,66 @@ class DrcomNetService extends BaseNetService {
     }
 
     try {
-      final response = await _client.post(
-        _buildUri('MonthPayAction.action'),
-        headers: _buildHeaders(includeFormContentType: true),
-        body: {'type': '1', 'year': year.toString()},
+      final response = await _get(
+        'Self/bill/getMonthPay',
+        query: {
+          't': Random().nextDouble().toString(),
+          'pageSize': '100',
+          'pageNumber': '1',
+          'sortName': '0',
+          'sortOrder': 'desc',
+          'year': year.toString(),
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        forceContentType: 'application/json; charset=utf-8',
       );
       NetServiceException.raiseForStatus(response.statusCode, setOffline);
       _updateCookie(response);
-      final html = response.body;
-      return MonthlyBillExtension.parse(html, year);
+      final jsonData = json.decode(response.body);
+      return MonthlyBillExtension.parse(jsonData, year);
     } on NetServiceException {
       rethrow;
     } catch (e) {
-      throw NetServiceNetworkError('Failed to load net monthly bill', e);
+      throw NetServiceNetworkError('Failed to load monthly bill', e);
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getUserOnlineLog({
+    required DateTime startTime,
+    required DateTime endTime,
+  }) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      final startStr =
+          '${startTime.year}-${startTime.month.toString().padLeft(2, '0')}-${startTime.day.toString().padLeft(2, '0')}';
+      final endStr =
+          '${endTime.year}-${endTime.month.toString().padLeft(2, '0')}-${endTime.day.toString().padLeft(2, '0')}';
+
+      final response = await _get(
+        'Self/bill/getUserOnlineLog',
+        query: {
+          't': Random().nextDouble().toStringAsFixed(6),
+          'pageSize': '100',
+          'pageNumber': '1',
+          'sortName': 'loginTime',
+          'sortOrder': 'desc',
+          'startTime': startStr,
+          'endTime': endStr,
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        forceContentType: 'application/json; charset=utf-8',
+      );
+      NetServiceException.raiseForStatus(response.statusCode, setOffline);
+      _updateCookie(response);
+      return json.decode(response.body) as Map<String, dynamic>;
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to load user online log', e);
     }
   }
 
@@ -213,29 +350,41 @@ class DrcomNetService extends BaseNetService {
     if (isOffline) {
       throw const NetServiceOffline();
     }
+    await refreshCsrfFrom('Self/setting/changePassword');
 
-    final response = await _client.post(
-      _buildUri('ChangePswAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {
-        'user.flduserpassword': oldPassword,
-        'user.fldmd5hehai': newPassword,
-        'user.fldextend': newPassword,
-        'Submit': 'Submit',
+    final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+      cachedSessionState!,
+      'changePasswordForm',
+    );
+
+    final response = await _post(
+      'Self/v2/password',
+      data: {
+        'csrftoken': csrfToken,
+        'oldPassword': oldPassword,
+        'newPassword': newPassword,
+        'confirmPassword': newPassword,
       },
+      forceContentType: 'application/json; charset=utf-8',
     );
     NetServiceException.raiseForStatus(response.statusCode, setOffline);
 
-    final responseText = response.body.toLowerCase();
-    if (!responseText.contains('修改成功') &&
-        !responseText.contains('modified successfully')) {
-      throw const NetServiceBadResponse(
-        'Password changing response may failed',
+    try {
+      final decoded = json.decode(response.body);
+      if (decoded['state'] != 'success') {
+        throw NetServiceBadResponse(
+          '${decoded['data'] ?? 'Unknown error while changing password'}',
+        );
+      }
+    } catch (e) {
+      if (e is NetServiceException) rethrow;
+      throw NetServiceBadResponse(
+        'Failed to parse password change response',
+        e,
       );
     }
   }
 
-  @override
   @override
   Future<RealtimeUsage> getRealtimeUsage(
     String username, {
@@ -268,5 +417,55 @@ class DrcomNetService extends BaseNetService {
 
   void dispose() {
     _client.close();
+  }
+
+  Future<void> refreshCsrfFrom(String path) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      final response = await _get(
+        path,
+        forceContentType: 'text/html; charset=utf-8',
+      );
+      NetServiceException.raiseForStatus(response.statusCode, setOffline);
+      _updateCookie(response);
+
+      if (cachedSessionState != null) {
+        final updatedState = NetDashboardSessionStateExtension.updateCsrf(
+          cachedSessionState!,
+          response.body,
+        );
+        updateSessionState(updatedState);
+
+        try {
+          final refreshAccountToken = NetDashboardSessionStateExtension.getCsrf(
+            cachedSessionState!,
+            'Self/dashboard/refreshaccount',
+          );
+
+          final response = await _get(
+            'Self/dashboard/refreshaccount',
+            query: {
+              'csrftoken': refreshAccountToken,
+              't': Random().nextDouble().toString(),
+            },
+          );
+          NetServiceException.raiseForStatus(response.statusCode, setOffline);
+          _updateCookie(response);
+
+          if (kDebugMode) {
+            print("Net dashboard CSRF token refreshed for $path");
+          }
+        } catch (_) {
+          // ignored
+        }
+      }
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to refresh CSRF token', e);
+    }
   }
 }

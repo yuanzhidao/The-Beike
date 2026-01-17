@@ -66,8 +66,8 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     try {
       final results = await Future.wait([
         serviceProvider.netService.getUser(),
-        serviceProvider.netService.getBoundedMac(),
-        serviceProvider.netService.getMonthlyBill(year: _selectedYear),
+        serviceProvider.netService.getDeviceList(),
+        serviceProvider.netService.getMonthPay(year: _selectedYear),
       ]);
       final info = results[0] as NetUserInfo;
       final macDevices = results[1] as List<MacDevice>;
@@ -83,9 +83,12 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError(e.toString());
-      // Force logout on error
-      if (serviceProvider.netService.isOnline) {
-        serviceProvider.netService.logout();
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
       }
     } finally {
       if (mounted) {
@@ -104,6 +107,13 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError('刷新账户信息失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isRefreshingUser = false);
     }
@@ -116,12 +126,19 @@ class _NetDashboardPageState extends State<NetDashboardPage>
       _macDevices = null;
     });
     try {
-      final macDevices = await serviceProvider.netService.getBoundedMac();
+      final macDevices = await serviceProvider.netService.getDeviceList();
       if (!mounted) return;
       setState(() => _macDevices = macDevices);
     } catch (e) {
       if (!mounted) return;
       setError('刷新设备列表失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isRefreshingDevices = false);
     }
@@ -134,7 +151,7 @@ class _NetDashboardPageState extends State<NetDashboardPage>
       _monthlyBills = null;
     });
     try {
-      final monthlyBills = await serviceProvider.netService.getMonthlyBill(
+      final monthlyBills = await serviceProvider.netService.getMonthPay(
         year: _selectedYear,
       );
       final sortedBills = List<MonthlyBill>.from(monthlyBills)
@@ -144,6 +161,13 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError('刷新月度账单失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoadingBills = false);
     }
@@ -184,6 +208,7 @@ class _NetDashboardPageState extends State<NetDashboardPage>
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('更改校园网密码失败：$e')));
+        _refreshUserInfo();
       }
     }
   }
@@ -226,7 +251,14 @@ class _NetDashboardPageState extends State<NetDashboardPage>
             });
           }
         } catch (e) {
-          if (mounted) setError('登出失败：$e');
+          if (mounted) setError('登出发生错误：$e');
+          if (!serviceProvider.netService.isOnline) {
+            setState(() {
+              _userInfo = null;
+              _macDevices = null;
+              _monthlyBills = null;
+            });
+          }
         }
       }
     } finally {
@@ -265,45 +297,69 @@ class _NetDashboardPageState extends State<NetDashboardPage>
 
     try {
       await serviceProvider.netService.setMacUnbounded(normalizedMac);
-      await _refreshDevices();
 
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('解绑设备成功')));
+        ).showSnackBar(const SnackBar(content: Text('解绑设备成功')));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('添加设备失败：$e')));
+        ).showSnackBar(SnackBar(content: Text('解绑设备失败：$e')));
       }
+    } finally {
+      await _refreshDevices();
     }
   }
 
-  // ignore: unused_element
   Future<void> _showAddDeviceDialog() async {
+    final theme = Theme.of(context);
     final macController = TextEditingController();
+    final nameController = TextEditingController(text: '我的设备');
 
-    final result = await showDialog<String>(
+    final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('添加设备'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('请输入设备的物理地址（MAC 地址）', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: macController,
-              decoration: const InputDecoration(
-                counterText: '',
-                border: OutlineInputBorder(),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '请输入设备的物理地址（MAC 地址）和设备名称。',
+                style: theme.textTheme.bodySmall,
               ),
-              textCapitalization: TextCapitalization.characters,
-              maxLength: 17,
-            ),
-          ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: macController,
+                decoration: const InputDecoration(
+                  labelText: 'MAC 地址',
+                  hintText: '例如: A1B2C3D4E5F6',
+                ),
+                textCapitalization: TextCapitalization.characters,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: '设备名称',
+                  hintText: '（可选）',
+                ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  final mac = macController.text.trim();
+                  final name = nameController.text.trim();
+                  if (mac.isNotEmpty) {
+                    Navigator.of(context).pop({'mac': mac, 'name': name});
+                  }
+                },
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -311,43 +367,39 @@ class _NetDashboardPageState extends State<NetDashboardPage>
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(macController.text.trim()),
+            onPressed: () {
+              final mac = macController.text.trim();
+              final name = nameController.text.trim();
+              if (mac.isNotEmpty) {
+                Navigator.of(context).pop({'mac': mac, 'name': name});
+              }
+            },
             child: const Text('添加'),
           ),
         ],
       ),
     );
 
-    if (result != null && result.isNotEmpty) {
-      await _handleAddDevice(result);
+    if (result != null) {
+      await _handleAddDevice(result['mac']!, result['name'] ?? '');
     }
   }
 
-  Future<void> _handleAddDevice(String mac) async {
+  Future<void> _handleAddDevice(String mac, String name) async {
     final macRegex = RegExp(
       r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$|^[0-9A-Fa-f]{12}$',
     );
     if (!macRegex.hasMatch(mac)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('MAC 地址格式不正确，应为 12 位十六进制数')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('MAC 地址格式不正确')));
       }
       return;
     }
 
     try {
-      final normalizedMac = mac.toLowerCase().replaceAll('-', ':');
-      final formattedMac = normalizedMac.length == 12
-          ? normalizedMac.replaceAllMapped(
-              RegExp(r'(.{2})(?!$)'),
-              (match) => '${match.group(0)}:',
-            )
-          : normalizedMac;
-
-      await serviceProvider.netService.setMacBounded(formattedMac);
-      await _refreshDevices();
+      await serviceProvider.netService.setMacBounded(mac, terminalName: name);
 
       if (mounted) {
         ScaffoldMessenger.of(
@@ -360,7 +412,154 @@ class _NetDashboardPageState extends State<NetDashboardPage>
           context,
         ).showSnackBar(SnackBar(content: Text('添加设备失败：$e')));
       }
+    } finally {
+      await _refreshDevices();
     }
+  }
+
+  void _showDeviceDetailsDialog(MacDevice device) {
+    final theme = Theme.of(context);
+    var displayMac = device.mac.toUpperCase();
+    if (RegExp(r'^[0-9A-F]{12}$').hasMatch(displayMac)) {
+      displayMac = displayMac.replaceAllMapped(
+        RegExp(r'.{2}'),
+        (match) => '${match.group(0)}:',
+      );
+      displayMac = displayMac.substring(0, displayMac.length - 1);
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Expanded(child: Text('设备详情')),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: device.isOnline
+                    ? Colors.green.withValues(alpha: 0.1)
+                    : Colors.grey.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: device.isOnline
+                      ? Colors.green.withValues(alpha: 0.5)
+                      : Colors.grey.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    size: 20,
+                    device.isOnline ? Icons.link : Icons.link_off,
+                    color: device.isOnline
+                        ? Colors.green.shade700
+                        : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    device.isOnline ? '在线' : '离线',
+                    style: TextStyle(
+                      color: device.isOnline
+                          ? Colors.green.shade700
+                          : Colors.grey,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 16),
+            _buildDetailItem(
+              theme,
+              'MAC 地址',
+              displayMac,
+              isMonospace: true,
+              trailing: IconButton(
+                iconSize: 16,
+                onPressed: () async {
+                  final rawMac = device.mac.toUpperCase();
+                  await Clipboard.setData(ClipboardData(text: rawMac));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('MAC 地址已复制到剪贴板'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                    Navigator.of(context).pop();
+                  }
+                },
+                icon: const Icon(Icons.copy),
+                tooltip: '复制 MAC',
+              ),
+            ),
+            _buildDetailItem(
+              theme,
+              '设备名称',
+              device.name.trim().isNotEmpty ? device.name.trim() : '未命名设备',
+            ),
+            _buildDetailItem(
+              theme,
+              '设备类型',
+              device.isDumbDevice ? '哑终端设备' : '常规设备',
+            ),
+            _buildDetailItem(theme, '最近登录时间', device.lastOnlineTime),
+            _buildDetailItem(theme, '最近登录 IP', device.lastOnlineIp),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailItem(
+    ThemeData theme,
+    String label,
+    String value, {
+    bool isMonospace = false,
+    Widget? trailing,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontFamily: isMonospace ? 'monospace' : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
   }
 
   @override
@@ -531,7 +730,7 @@ class _NetDashboardPageState extends State<NetDashboardPage>
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  info.account,
+                  '${info.realName} (${info.accountName})',
                   style: theme.textTheme.headlineSmall,
                   maxLines: 2,
                 ),
@@ -564,14 +763,21 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                   theme,
                   icon: Icons.account_balance_wallet,
                   label: '余额',
-                  value: info.leftMoney ?? 'NaN',
+                  value: '¥${info.moneyLeft.toStringAsFixed(2)}',
                 ),
-                if (info.subscription.isNotEmpty)
+                _buildActionChip(
+                  theme,
+                  icon: Icons.data_usage,
+                  label: '剩余流量',
+                  value:
+                      '${(info.flowLeft / 1024).toStringAsFixed(2)} GB', // Assuming MB input
+                ),
+                if (info.plan != null)
                   _buildActionChip(
                     theme,
                     icon: Icons.wifi,
                     label: '套餐',
-                    value: info.subscription,
+                    value: info.plan!.planName,
                   ),
                 _buildActionChip(
                   theme,
@@ -710,15 +916,15 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                   return _buildMacListTile(theme, context, device);
                 },
               ),
-            // const SizedBox(height: 16),
-            // if (_macDevices != null && _macDevices!.length < 3)
-            //   Center(
-            //     child: OutlinedButton.icon(
-            //       onPressed: _showAddDeviceDialog,
-            //       icon: const Icon(Icons.add),
-            //       label: const Text('手动添加设备'),
-            //     ),
-            //   ),
+            const SizedBox(height: 16),
+            if (_macDevices != null && _macDevices!.length < 5)
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: _showAddDeviceDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('手动添加设备'),
+                ),
+              ),
           ],
         ),
       ),
@@ -730,15 +936,34 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     BuildContext context,
     MacDevice device,
   ) {
-    final deviceMac = device.mac.toUpperCase();
+    var displayMac = device.mac.toUpperCase();
+    // Add colons if missing for better readability
+    if (RegExp(r'^[0-9A-F]{12}$').hasMatch(displayMac)) {
+      displayMac = displayMac.replaceAllMapped(
+        RegExp(r'.{2}'),
+        (match) => '${match.group(0)}:',
+      );
+      displayMac = displayMac.substring(
+        0,
+        displayMac.length - 1,
+      ); // remove last colon
+    }
+
     final deviceName = device.name.trim();
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Padding(
-            padding: const EdgeInsets.all(4),
-            child: const Icon(Icons.memory),
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              size: 22,
+              device.isOnline ? Icons.link : Icons.link_off,
+              color: device.isOnline
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.secondary,
+            ),
           ),
           Expanded(
             child: Column(
@@ -747,29 +972,11 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                 Row(
                   children: [
                     Text(
-                      deviceMac,
-                      style: theme.textTheme.bodyLarge?.copyWith(
+                      displayMac,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontFamily: 'monospace',
                         fontWeight: FontWeight.w500,
                       ),
-                    ),
-                    IconButton(
-                      iconSize: 14,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 24,
-                        minHeight: 24,
-                      ),
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: deviceMac));
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('所选设备的物理地址（MAC 地址）已复制到剪贴板'),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.content_copy),
                     ),
                   ],
                 ),
@@ -782,13 +989,20 @@ class _NetDashboardPageState extends State<NetDashboardPage>
               ],
             ),
           ),
+          const SizedBox(width: 8),
           IconButton(
-            iconSize: 24,
-            padding: EdgeInsets.zero,
+            iconSize: 20,
+            color: theme.colorScheme.primary,
+            onPressed: () => _showDeviceDetailsDialog(device),
+            icon: const Icon(Icons.info_outline),
+            tooltip: '详情',
+          ),
+          IconButton(
+            iconSize: 20,
             color: theme.colorScheme.error,
-            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: () => _handleUnbindMac(device),
-            icon: const Icon(Icons.link_off),
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '解绑设备',
           ),
         ],
       ),

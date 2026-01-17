@@ -86,7 +86,7 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
       // Error occurred during changing password
       if (mounted) {
         setState(() {
-          _errorMessage = '更改密码失败，请检查输入';
+          _errorMessage = '$e';
           _isLoading = false;
         });
       }
@@ -178,6 +178,10 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
+              Text(
+                "更改密码失败，原因如下：",
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
               Text(
                 _errorMessage!,
                 style: TextStyle(color: theme.colorScheme.error),
