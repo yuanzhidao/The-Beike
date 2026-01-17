@@ -8,6 +8,7 @@ import 'dialog_change_pswd.dart';
 import 'dialog_login.dart';
 import 'dialog_device_show.dart';
 import 'dialog_device_add.dart';
+import 'dialog_plan_show.dart';
 
 class NetDashboardPage extends StatefulWidget {
   const NetDashboardPage({super.key});
@@ -212,6 +213,14 @@ class _NetDashboardPageState extends State<NetDashboardPage>
         _refreshUserInfo();
       }
     }
+  }
+
+  Future<void> _showPlanDialog() async {
+    if (_userInfo?.plan == null) return;
+    await showDialog(
+      context: context,
+      builder: (context) => NetPlanShowDialog(userInfo: _userInfo!),
+    );
   }
 
   Future<void> _showLogoutDialog() async {
@@ -573,7 +582,8 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                     theme,
                     icon: Icons.wifi,
                     label: '套餐',
-                    value: info.plan!.planName,
+                    value: '查看套餐详情',
+                    onPressed: _showPlanDialog,
                   ),
                 _buildActionChip(
                   theme,
