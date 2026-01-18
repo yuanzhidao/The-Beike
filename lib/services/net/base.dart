@@ -46,6 +46,8 @@ abstract class BaseNetService with BaseService {
     required String newPassword,
   });
 
+  Future<void> doChangeConsumeProtect({int? maxConsume});
+
   Future<List<MonthlyBill>> getMonthPay({required int year});
 
   Future<Map<String, dynamic>> getUserOnlineLog({
@@ -141,6 +143,20 @@ abstract class BaseNetService with BaseService {
       rethrow;
     } catch (e) {
       throw NetServiceNetworkError('Failed to change password', e);
+    }
+  }
+
+  Future<void> changeConsumeProtect({required int? maxConsume}) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      await doChangeConsumeProtect(maxConsume: maxConsume);
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to change consume protect', e);
     }
   }
 

@@ -140,6 +140,15 @@ extension NetUserInfoExtension on NetUserInfo {
         );
       }
 
+      // Parse maxConsume from installmentFlag
+      int? maxConsume;
+      final installmentFlag = json['installmentFlag'] as int?;
+      if (installmentFlag != null &&
+          0 <= installmentFlag &&
+          installmentFlag < 999999) {
+        maxConsume = installmentFlag;
+      }
+
       return NetUserInfo(
         realName: json['userRealName'] as String,
         accountName: json['userName'] as String,
@@ -152,6 +161,7 @@ extension NetUserInfoExtension on NetUserInfo {
         moneyLeft: (json['leftMoney'] as num).toDouble(),
         moneyUsed: (json['useMoney'] as num).toDouble(),
         plan: plan,
+        maxConsume: maxConsume,
       );
     } catch (e) {
       throw NetServiceException('Failed to parse user info JSON: $e');

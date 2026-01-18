@@ -422,6 +422,33 @@ class DrcomNetService extends BaseNetService {
   }
 
   @override
+  Future<void> doChangeConsumeProtect({int? maxConsume}) async {
+    await refreshCsrfFrom('Self/service/consumeProtect');
+
+    final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+      cachedSessionState!,
+      'form',
+    );
+
+    maxConsume ??= 999999;
+    maxConsume = maxConsume.clamp(0, 999999);
+
+    final response = await _post(
+      'Self/service/changeConsumeProtect',
+      data: {'csrftoken': csrfToken, 'consumeLimit': maxConsume.toString()},
+    );
+    // Expect 302 redirect to /Self/service/consumeProtect
+    if (response.statusCode == 302) {
+      final location = response.headers['location'] ?? '';
+      if (location.contains('consumeProtect')) {
+        _updateCookie(response);
+        return;
+      }
+    }
+    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+  }
+
+  @override
   Future<RealtimeUsage> getRealtimeUsage(
     String username, {
     required bool viaVpn,

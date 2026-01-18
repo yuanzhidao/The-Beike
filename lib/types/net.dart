@@ -114,6 +114,7 @@ class NetUserInfo extends BaseDataClass {
   final double moneyUsed;
 
   final NetUserPlan? plan;
+  final int? maxConsume;
 
   NetUserInfo({
     required this.realName,
@@ -127,6 +128,7 @@ class NetUserInfo extends BaseDataClass {
     required this.moneyLeft,
     required this.moneyUsed,
     this.plan,
+    this.maxConsume,
   });
 
   @override
@@ -136,6 +138,7 @@ class NetUserInfo extends BaseDataClass {
       'accountName': accountName,
       'flowLeft': flowLeft,
       'moneyLeft': moneyLeft,
+      'maxConsume': maxConsume,
     };
   }
 

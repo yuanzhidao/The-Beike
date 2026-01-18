@@ -10,6 +10,7 @@ import 'dialog_login.dart';
 import 'dialog_device_show.dart';
 import 'dialog_device_add.dart';
 import 'dialog_plan_show.dart';
+import 'dialog_change_max_consume.dart';
 
 class NetDashboardPage extends StatefulWidget {
   const NetDashboardPage({super.key});
@@ -222,6 +223,31 @@ class _NetDashboardPageState extends State<NetDashboardPage>
       context: context,
       builder: (context) => NetPlanShowDialog(userInfo: _userInfo!),
     );
+  }
+
+  Future<void> _showChangeMaxConsumeDialog() async {
+    try {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) =>
+            NetChangeMaxConsumeDialog(currentMaxConsume: _userInfo?.maxConsume),
+      );
+
+      if (result == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('更改限额成功')));
+        }
+        await _refreshUserInfo();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('更改限额失败：$e')));
+      }
+    }
   }
 
   Future<void> _showLogoutDialog() async {
@@ -621,6 +647,15 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                   icon: Icons.account_balance_wallet,
                   label: '余额',
                   value: '¥${info.moneyLeft.toStringAsFixed(2)}',
+                ),
+                _buildActionChip(
+                  theme,
+                  icon: Icons.security,
+                  label: '限额',
+                  value: info.maxConsume == null || info.maxConsume! >= 999999
+                      ? '未设置'
+                      : '¥${info.maxConsume}',
+                  onPressed: _showChangeMaxConsumeDialog,
                 ),
                 if (info.plan != null)
                   _buildActionChip(
