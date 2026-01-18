@@ -637,42 +637,79 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildActionChip(
-                  theme,
-                  icon: Icons.account_balance_wallet,
-                  label: '余额',
-                  value: '¥${info.moneyLeft.toStringAsFixed(2)}',
-                ),
-                _buildActionChip(
-                  theme,
-                  icon: Icons.security,
-                  label: '限额',
-                  value: info.maxConsume == null || info.maxConsume! >= 999999
-                      ? '未设置'
-                      : '¥${info.maxConsume}',
-                  onPressed: _showChangeMaxConsumeDialog,
-                ),
-                if (info.plan != null)
-                  _buildActionChip(
-                    theme,
-                    icon: Icons.wifi,
-                    label: '套餐',
-                    value: '查看套餐详情',
-                    onPressed: _showPlanDialog,
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrowScreen = constraints.maxWidth < 300;
+                final items = [
+                  (
+                    Icons.account_balance_wallet,
+                    '余额',
+                    '¥${info.moneyLeft.toStringAsFixed(2)}',
+                    null as VoidCallback?,
                   ),
-                _buildActionChip(
-                  theme,
-                  icon: Icons.lock,
-                  label: '密码',
-                  value: '修改密码',
-                  onPressed: _isLoggingOut ? null : _showChangePasswordDialog,
-                ),
-              ],
+                  (
+                    Icons.security,
+                    '限额',
+                    info.maxConsume == null || info.maxConsume! >= 999999
+                        ? '未设置'
+                        : '¥${info.maxConsume}',
+                    _showChangeMaxConsumeDialog as VoidCallback?,
+                  ),
+                  if (info.plan != null)
+                    (
+                      Icons.wifi,
+                      '套餐',
+                      info.plan!.planName,
+                      _showPlanDialog as VoidCallback?,
+                    ),
+                  (
+                    Icons.lock,
+                    '密码',
+                    '修改密码',
+                    (_isLoggingOut ? null : _showChangePasswordDialog)
+                        as VoidCallback?,
+                  ),
+                ];
+
+                if (isNarrowScreen) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: List.generate(
+                      items.length,
+                      (index) => Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index < items.length - 1 ? 8 : 0,
+                        ),
+                        child: _buildActionChip(
+                          theme,
+                          icon: items[index].$1,
+                          label: items[index].$2,
+                          value: items[index].$3,
+                          onPressed: items[index].$4,
+                          isFullWidth: true,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: items
+                      .map(
+                        (item) => _buildActionChip(
+                          theme,
+                          icon: item.$1,
+                          label: item.$2,
+                          value: item.$3,
+                          onPressed: item.$4,
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
           ],
         ),
@@ -686,61 +723,77 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     required String label,
     required String value,
     VoidCallback? onPressed,
+    bool isFullWidth = false,
   }) {
+    final content = Row(
+      mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        if (isFullWidth)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Text(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+
+    final container = Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: content,
+    );
+
     if (onPressed != null) {
-      return ActionChip(
-        avatar: Icon(icon, size: 18),
-        label: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            Text(
-              value,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          child: container,
         ),
-        onPressed: onPressed,
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.5,
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       );
     }
 
-    return Chip(
-      avatar: Icon(icon, size: 18),
-      label: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-        alpha: 0.5,
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-    );
+    return container;
   }
 
   Widget _buildFlowProgressBarContent(ThemeData theme, NetUserInfo info) {
@@ -974,11 +1027,16 @@ class _NetDashboardPageState extends State<NetDashboardPage>
               ),
             const SizedBox(height: 16),
             if (_macDevices != null && _macDevices!.length < 5)
-              Center(
-                child: OutlinedButton.icon(
-                  onPressed: _showAddDeviceDialog,
-                  icon: const Icon(Icons.add),
-                  label: const Text('手动添加设备'),
+              ElevatedButton.icon(
+                onPressed: _showAddDeviceDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('手动添加新设备'),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: theme.colorScheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.all(12),
                 ),
               ),
           ],

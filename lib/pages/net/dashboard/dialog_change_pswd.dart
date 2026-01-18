@@ -36,10 +36,6 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
     super.dispose();
   }
 
-  bool _isPasswordValid(String password) {
-    return password.length >= 8 && password.length <= 16;
-  }
-
   bool get _isChangeAllowed {
     final oldPassword = _oldPasswordController.text;
     final newPassword = _newPasswordController.text;
@@ -59,14 +55,15 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
     if (newPassword != confirmPassword) {
       setState(() {
         _errorMessage = '新密码的填写不一致';
+        _confirmPasswordController.clear();
       });
       return;
     }
 
     // Validate password requirements
-    if (!_isPasswordValid(newPassword)) {
+    if (newPassword.length < 8 || newPassword.length > 32) {
       setState(() {
-        _errorMessage = '密码要求是 8~16 位';
+        _errorMessage = '新密码的长度要求是 8~32 位';
       });
       return;
     }
