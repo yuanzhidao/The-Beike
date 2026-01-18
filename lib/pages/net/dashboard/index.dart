@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '/types/net.dart';
 import '/utils/app_bar.dart';
@@ -530,34 +531,85 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  '${info.realName} (${info.accountName})',
-                  style: theme.textTheme.headlineSmall,
-                  maxLines: 2,
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  iconSize: 20,
-                  padding: EdgeInsets.zero,
-                  color: theme.colorScheme.error,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // User info section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                info.realName,
+                                style: theme.textTheme.titleLarge,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                info.accountName,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        ElevatedButton.icon(
+                          label: const Text('登出'),
+                          icon: _isLoggingOut
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.logout),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                          ),
+                          onPressed: _isLoggingOut ? null : _showLogoutDialog,
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: _isLoggingOut ? null : _showLogoutDialog,
-                  icon: _isLoggingOut
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.logout),
-                ),
-              ],
+                  // Divider
+                  Divider(height: 4),
+                  // Flow progress bar section
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [_buildFlowProgressBarContent(theme, info)],
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -569,13 +621,6 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                   icon: Icons.account_balance_wallet,
                   label: '余额',
                   value: '¥${info.moneyLeft.toStringAsFixed(2)}',
-                ),
-                _buildActionChip(
-                  theme,
-                  icon: Icons.data_usage,
-                  label: '剩余流量',
-                  value:
-                      '${(info.flowLeft / 1024).toStringAsFixed(2)} GB', // Assuming MB input
                 ),
                 if (info.plan != null)
                   _buildActionChip(
@@ -660,6 +705,176 @@ class _NetDashboardPageState extends State<NetDashboardPage>
         alpha: 0.5,
       ),
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    );
+  }
+
+  Widget _buildFlowProgressBarContent(ThemeData theme, NetUserInfo info) {
+    final freeFlow = info.plan?.freeFlow ?? 0.0;
+    final flowUsed = info.flowUsed;
+    final flowLeft = freeFlow > 0
+        ? math.min(info.flowLeft, freeFlow - flowUsed)
+        : info.flowLeft;
+
+    final hasPackage = freeFlow > 0;
+    final freeGB = freeFlow / 1024;
+    final usedGB = flowUsed / 1024;
+    final leftGB = flowLeft / 1024;
+    final isOverLimit = hasPackage && flowLeft <= 0;
+    final exceededGB = isOverLimit ? -leftGB : 0.0;
+
+    // Determine ratios and colors for the cool progress bar
+    Color backgroundColor;
+    double ratio;
+
+    if (hasPackage) {
+      if (isOverLimit) {
+        backgroundColor = Colors.deepOrange;
+        ratio = freeFlow / (flowUsed > 0 ? flowUsed : 1.0);
+      } else {
+        backgroundColor = Colors.green;
+        ratio = flowUsed / (freeFlow > 0 ? freeFlow : 1.0);
+      }
+    } else {
+      // No package, pure blue bar representing current usage
+      backgroundColor = theme.colorScheme.primary.withValues(alpha: 0.1);
+      ratio = 1.0;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 16, // Fixed height for the progress bar
+            width: double.infinity,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (isOverLimit) {
+                  // Case Over Limit
+                  return _AnimatedWavyBar(
+                    ratio: 1.0,
+                    color: backgroundColor,
+                    maxWidth: constraints.maxWidth,
+                    child: Container(
+                      width: constraints.maxWidth,
+                      color: backgroundColor,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          width: constraints.maxWidth * ratio,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                // Case Normal
+                return Stack(
+                  children: [
+                    // Right side color (Remaining or Exceeded)
+                    Container(color: backgroundColor),
+                    // Left side color (Used or Limit) with wavy edge
+                    if (ratio > 0)
+                      _AnimatedWavyBar(
+                        ratio: ratio,
+                        color: theme.colorScheme.primary,
+                        maxWidth: constraints.maxWidth,
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Labels
+        Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            if (!isOverLimit) ...[
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '已用 ${usedGB.toStringAsFixed(2)} GB',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+              if (hasPackage && leftGB > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '剩余 ${leftGB.toStringAsFixed(2)} GB',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+            ],
+            if (isOverLimit) ...[
+              if (freeFlow > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '配额 ${freeGB.toStringAsFixed(2)} GB',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '超出 ${exceededGB.toStringAsFixed(2)} GB',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
@@ -815,6 +1030,111 @@ class _NetDashboardPageState extends State<NetDashboardPage>
           ),
         ],
       ),
+    );
+  }
+}
+
+class _WavyRightClipper extends CustomClipper<Path> {
+  final double baseWidth;
+  final double waveHeight;
+  final double waveCount;
+  final double offset;
+
+  _WavyRightClipper({
+    required this.baseWidth,
+    required this.waveHeight,
+    required this.waveCount,
+    required this.offset,
+  });
+
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(baseWidth, 0);
+
+    const double step = 0.5;
+    for (double y = 0; y <= size.height; y += step) {
+      final double normalizedY = y / size.height;
+      final double xOffset =
+          math.sin((normalizedY * waveCount + offset) * 2 * math.pi) *
+          waveHeight;
+      path.lineTo(baseWidth + xOffset, y);
+    }
+
+    path.lineTo(0, size.height);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(_WavyRightClipper oldClipper) =>
+      oldClipper.offset != offset ||
+      oldClipper.baseWidth != baseWidth ||
+      oldClipper.waveHeight != waveHeight ||
+      oldClipper.waveCount != waveCount;
+}
+
+class _AnimatedWavyBar extends StatefulWidget {
+  final double ratio;
+  final Color color;
+  final double maxWidth;
+  final Widget? child;
+
+  const _AnimatedWavyBar({
+    required this.ratio,
+    required this.color,
+    required this.maxWidth,
+    this.child,
+  });
+
+  @override
+  State<_AnimatedWavyBar> createState() => _AnimatedWavyBarState();
+}
+
+class _AnimatedWavyBarState extends State<_AnimatedWavyBar>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double waveHeight = 2.0;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        // If ratio is 1.0, we pull the base width back slightly to ensure
+        // the wave peaks (baseWidth + waveHeight) don't get cut by the container edge.
+        final double baseWidth = widget.ratio >= 1.0
+            ? (widget.maxWidth - waveHeight)
+            : (widget.maxWidth * widget.ratio);
+
+        return ClipPath(
+          clipper: _WavyRightClipper(
+            baseWidth: baseWidth,
+            offset: _controller.value,
+            waveHeight: waveHeight,
+            waveCount: 0.618,
+          ),
+          child:
+              widget.child ??
+              Container(width: widget.maxWidth, color: widget.color),
+        );
+      },
     );
   }
 }
