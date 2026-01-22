@@ -104,11 +104,7 @@ class ServiceProvider extends ChangeNotifier {
     }
   }
 
-  void _disposeNetService() {
-    if (_netService is DrcomNetService) {
-      (_netService as DrcomNetService).dispose();
-    }
-  }
+  void _disposeNetService() {}
 
   Future<void> _loadCurriculumData() async {
     try {

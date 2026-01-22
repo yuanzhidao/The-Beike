@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import '/services/sync/base.dart';
 import '/services/sync/exceptions.dart';
 import 'convert.dart';
@@ -8,10 +8,28 @@ import '/types/sync.dart';
 import '/utils/meta_info.dart';
 
 class SyncService extends BaseSyncService {
+  late final Dio _dio;
+
+  SyncService() {
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: defaultBaseUrl,
+        headers: {'User-Agent': userAgent},
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+  }
+
   @override
   String get defaultBaseUrl => 'https://thebeike.cn/api';
 
   String get userAgent => 'TheBeike-GUI/${MetaInfo.instance.appVersion}';
+
+  @override
+  set baseUrl(String url) {
+    super.baseUrl = url;
+    _dio.options.baseUrl = url;
+  }
 
   @override
   Future<List<Announcement>> getAnnouncements() async {
@@ -29,13 +47,10 @@ class SyncService extends BaseSyncService {
 
   @override
   Future<ReleaseInfo?> getRelease() async {
-    http.Response response;
+    Response response;
 
     try {
-      response = await http.get(
-        Uri.parse('$baseUrl/release/version'),
-        headers: {'User-Agent': userAgent},
-      );
+      response = await _dio.get('/release/version');
     } catch (e) {
       throw SyncServiceNetworkError('Network error: $e', e);
     }
@@ -43,8 +58,7 @@ class SyncService extends BaseSyncService {
     Map<String, dynamic>? responseData;
 
     try {
-      final responseJson = json.decode(response.body) as Map<String, dynamic>;
-      responseData = responseJson['data'] as Map<String, dynamic>?;
+      responseData = response.data['data'] as Map<String, dynamic>?;
     } catch (e) {
       throw SyncServiceBadResponse('Invalid response format', e);
     }
@@ -64,13 +78,13 @@ class SyncService extends BaseSyncService {
     String endpoint,
     Map<String, dynamic> body,
   ) async {
-    http.Response response;
+    Response response;
 
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/client/$endpoint'),
-        headers: {'Content-Type': 'application/json', 'User-Agent': userAgent},
-        body: json.encode(body),
+      response = await _dio.post(
+        '/client/$endpoint',
+        data: body,
+        options: Options(contentType: Headers.jsonContentType),
       );
     } catch (e) {
       throw SyncServiceNetworkError('Network error: $e', e);
@@ -80,9 +94,8 @@ class SyncService extends BaseSyncService {
     Map<String, dynamic>? responseData;
 
     try {
-      final responseJson = json.decode(response.body) as Map<String, dynamic>;
-      responseBusinessCode = responseJson['code'] as int;
-      responseData = responseJson['data'] as Map<String, dynamic>?;
+      responseBusinessCode = response.data['code'] as int;
+      responseData = response.data['data'] as Map<String, dynamic>?;
     } catch (e) {
       throw SyncServiceBadResponse('Invalid response format', e);
     }
@@ -205,25 +218,22 @@ class SyncService extends BaseSyncService {
     required String groupId,
     required Map<String, dynamic> config,
   }) async {
-    final uri = Uri.parse(
-      '$baseUrl/client/sync/update',
-    ).replace(queryParameters: {'deviceId': deviceId, 'groupId': groupId});
-
     List<int> bodyBytes;
 
     final jsonString = json.encode(config);
     bodyBytes = zlib.encode(utf8.encode(jsonString));
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Encoding': 'deflate',
-          'User-Agent': userAgent,
-        },
-        body: bodyBytes,
+      response = await _dio.post(
+        '/client/sync/update',
+        queryParameters: {'deviceId': deviceId, 'groupId': groupId},
+        data: bodyBytes,
+        options: Options(
+          contentType: 'application/octet-stream',
+          headers: {'Content-Encoding': 'deflate'},
+          responseType: ResponseType.bytes,
+        ),
       );
     } catch (e) {
       recordSyncStatus(SyncStatusType.failure);
@@ -231,12 +241,12 @@ class SyncService extends BaseSyncService {
     }
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      if (response.bodyBytes.isEmpty) {
+      if ((response.data as List<int>).isEmpty) {
         recordSyncStatus(SyncStatusType.success);
         return null;
       }
       try {
-        final decodedBytes = zlib.decode(response.bodyBytes);
+        final decodedBytes = zlib.decode(response.data as List<int>);
         final decodedString = utf8.decode(decodedBytes);
         final result = json.decode(decodedString) as Map<String, dynamic>;
         recordSyncStatus(SyncStatusType.success);
@@ -249,7 +259,9 @@ class SyncService extends BaseSyncService {
       // Try to parse error from JSON if possible
       int responseBusinessCode = -1;
       try {
-        final responseJson = json.decode(response.body) as Map<String, dynamic>;
+        final responseString = utf8.decode(response.data as List<int>);
+        final responseJson =
+            json.decode(responseString) as Map<String, dynamic>;
         responseBusinessCode = responseJson['code'] as int;
       } catch (_) {
         // Ignore if not JSON
