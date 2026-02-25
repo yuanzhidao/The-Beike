@@ -1,89 +1,199 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '/services/net/exceptions.dart';
 import '/types/net.dart';
 
-extension LoginRequirementsExtension on LoginRequirements {
+extension NetDashboardSessionStateExtension on NetDashboardSessionState {
   static final RegExp checkCodeRegex = RegExp(
-    r'var\s*checkcode\s*=\s*"(\w+)"',
-    caseSensitive: false,
-  );
-  static final RegExp tryTimesRegex = RegExp(
-    r'var\s*trytimes\s*=\s*"(\w+|null)"',
-    caseSensitive: false,
-  );
-  static final RegExp tryTimesThresholdRegex = RegExp(
-    r'if\s*\(parseInt\(trytimes\)\s*>=\s*(\d+)\s*\)',
+    // Match an <input> tag that contains name="checkcode" and type="hidden",
+    r'''<input\b(?=[^>]*\bname\s*=\s*['"]checkcode['"])(?=[^>]*\btype\s*=\s*['"]hidden['"])[^>]*\bvalue\s*=\s*['"]([^'"]+)['"]''',
     caseSensitive: false,
   );
 
-  static LoginRequirements parse(String html) {
+  static final RegExp randomDivRegex = RegExp(
+    // Match a <div> with id="randomDiv" and optionally capture its class attribute.
+    r'''<div\b(?=[^>]*\bid\s*=\s*['"]randomDiv['"])(?:[^>]*\bclass\s*=\s*['"]([^'"]*)['"])?[^>]*>''',
+    caseSensitive: false,
+  );
+
+  // Csrf Pattern 1: JQuery Ajax
+  static final RegExp csrfAjaxPattern = RegExp(
+    r'''\$\.(?:(?:ajax)|(?:get))\s*\([^'"]*['"]([^'"]+)['"][^}]*(?:(?:csrftoken)|(?:ajaxCsrfToken))\s*:\s*['"]([^'"]+)['"]''',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  // Csrf Pattern 2: Window location redirection
+  static final RegExp csrfLocationPattern = RegExp(
+    r'''window\.location\.href\s*=\s*['"]([^'"?]+)\?.*ajaxCsrfToken=(?:['"]\s*\+\s*['"])?([\w-]+)['"]''',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  // Csrf Pattern 3: Form field
+  static final RegExp csrfFormPattern = RegExp(
+    r'''<form[^]+id=['"]([^'"]+)['"][^]*>[^]*<input[^]+name=['"]csrftoken['"][^]+value=['"]([^'"]+)['"][^<]*>''',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  static NetDashboardSessionState parseFromHtml(String html) {
     final checkCodeMatch = checkCodeRegex.firstMatch(html);
-    final tryTimesMatch = tryTimesRegex.firstMatch(html);
-    final tryTimesThresholdMatch = tryTimesThresholdRegex.firstMatch(html);
-
     final checkCode = checkCodeMatch?.group(1)?.trim();
 
     if (checkCode == null || checkCode.isEmpty) {
-      throw const NetServiceException('Failed to parse default check code');
+      throw const NetServiceException('Failed to parse check code');
     }
 
-    final tryTimesStr = tryTimesMatch?.group(1)?.trim() ?? '0';
-    final tryTimesThresholdStr =
-        tryTimesThresholdMatch?.group(1)?.trim() ?? '3';
+    // If randomDiv has class "hide", then random code is not needed
+    final randomDivMatch = randomDivRegex.firstMatch(html);
+    final needRandomCode =
+        randomDivMatch != null && !randomDivMatch.group(0)!.contains('hide');
 
-    final tryTimes = int.tryParse(tryTimesStr) ?? 0;
-    final tryTimesThreshold = int.tryParse(tryTimesThresholdStr) ?? 3;
-
-    return LoginRequirements(
+    return NetDashboardSessionState(
       checkCode: checkCode,
-      tryTimes: tryTimes,
-      tryTimesThreshold: tryTimesThreshold,
+      needRandomCode: needRandomCode,
     );
+  }
+
+  static NetDashboardSessionState updateCsrf(
+    NetDashboardSessionState state,
+    String html,
+  ) {
+    final newTokens = Map<String, String>.from(state.csrfTokens);
+
+    final csrfPatterns = [
+      csrfAjaxPattern,
+      csrfLocationPattern,
+      csrfFormPattern,
+    ];
+
+    for (final pattern in csrfPatterns) {
+      for (final match in pattern.allMatches(html)) {
+        final key = match.group(1)?.trim();
+        final token = match.group(2)?.trim();
+        if (key != null &&
+            key.isNotEmpty &&
+            token != null &&
+            token.isNotEmpty) {
+          newTokens[key] = token;
+        }
+      }
+    }
+
+    if (newTokens.isEmpty && state.csrfTokens.isEmpty) {
+      return state;
+    }
+
+    return NetDashboardSessionState(
+      checkCode: state.checkCode,
+      needRandomCode: state.needRandomCode,
+      csrfTokens: newTokens,
+    );
+  }
+
+  static String getCsrf(NetDashboardSessionState state, path) {
+    for (final entry in state.csrfTokens.entries) {
+      if (entry.key.endsWith(path)) {
+        return entry.value;
+      }
+    }
+    throw NetServiceException("CSRF token missing");
   }
 }
 
 extension NetUserInfoExtension on NetUserInfo {
-  static NetUserInfo parse(Map<String, dynamic> data) {
-    return NetUserInfo(
-      account: data['welcome'] ?? '',
-      subscription: data['service'] ?? '',
-      status: data['status'] ?? '',
-      leftFlow: data['leftFlow'],
-      leftTime: data['leftTime'],
-      leftMoney: data['leftmoeny'],
-      overDate: data['overdate'],
-      onlineState: data['onlinestate'],
-    );
+  static final RegExp _userInfoRegex = RegExp(
+    r'window\.user\s*=\s*user\s*\|\|\s*\{\};\s*\}\)\((\{.*?\})\);',
+    dotAll: true,
+  );
+
+  static NetUserInfo parseFromHtml(String html) {
+    final match = _userInfoRegex.firstMatch(html);
+    if (match == null) {
+      throw const NetServiceException('Failed to find user info in dashboard');
+    }
+
+    final jsonStr = match.group(1);
+    if (jsonStr == null) {
+      throw const NetServiceException(
+        'Failed to extract user info JSON from dashboard',
+      );
+    }
+
+    try {
+      final Map<String, dynamic> json = jsonDecode(jsonStr);
+
+      // Parse userGroup if present
+      NetUserPlan? plan;
+      final userGroupJson = json['userGroup'] as Map<String, dynamic>?;
+      if (userGroupJson != null) {
+        plan = NetUserPlan(
+          planId: userGroupJson['userGroupId'] as int,
+          planName: userGroupJson['userGroupName'] as String,
+          planDescription: userGroupJson['userGroupDescription'] as String,
+          freeFlow: (userGroupJson['flowStart'] as num).toDouble(),
+          unitFlowCost: (userGroupJson['flowRate'] as num).toDouble(),
+          maxLogins: userGroupJson['ipMaxCount'] as int,
+        );
+      }
+
+      // Parse maxConsume from installmentFlag
+      int? maxConsume;
+      final installmentFlag = json['installmentFlag'] as int?;
+      if (installmentFlag != null &&
+          0 <= installmentFlag &&
+          installmentFlag < 999999) {
+        maxConsume = installmentFlag;
+      }
+
+      return NetUserInfo(
+        realName: json['userRealName'] as String,
+        accountName: json['userName'] as String,
+        bandwidthDown: json['downloadBand'] as int?,
+        bandwidthUp: json['uploadBand'] as int?,
+        internetDownFlow: (json['internetDownFlow'] as num).toDouble(),
+        internetUpFlow: (json['internetUpFlow'] as num).toDouble(),
+        flowLeft: (json['leftFlow'] as num).toDouble(),
+        flowUsed: (json['useFlow'] as num).toDouble(),
+        moneyLeft: (json['leftMoney'] as num).toDouble(),
+        moneyUsed: (json['useMoney'] as num).toDouble(),
+        plan: plan,
+        maxConsume: maxConsume,
+      );
+    } catch (e) {
+      throw NetServiceException('Failed to parse user info JSON: $e');
+    }
   }
 }
 
 extension MacDeviceExtension on MacDevice {
-  static final nameAndMacRegExp = RegExp(
-    r'<input[^>]*type\s*=\s*"text"[^>]*value\s*=\s*"([^"]*)"',
-    caseSensitive: false,
-  );
-  static final macRegExp = RegExp(
-    r'<input[^>]*name\s*=\s*"macs"[^>]*value\s*=\s*"([^"]+)"',
-    caseSensitive: false,
-  );
+  static List<MacDevice> parse(Map<String, dynamic> json) {
+    final devices = <MacDevice>[];
+    final rows = json['rows'] as List<dynamic>? ?? [];
 
-  static List<MacDevice> parse(String html) {
-    final deviceNames = <String>[];
-    for (final match in nameAndMacRegExp.allMatches(html)) {
-      final fullTag = match.group(0) ?? '';
-      if (macRegExp.hasMatch(fullTag)) {
+    for (final row in rows) {
+      if (row is! List || row.length < 7) {
         continue;
       }
-      deviceNames.add((match.group(1) ?? '').trim());
-    }
 
-    final devices = <MacDevice>[];
-    var index = 0;
-    for (final match in macRegExp.allMatches(html)) {
-      final macValue = match.group(1) ?? '';
-      final name = index < deviceNames.length ? deviceNames[index] : '';
-      devices.add(MacDevice(name: name, mac: macValue));
-      index++;
+      final isOnline = row[0].toString() == '1';
+      final mac = row[1].toString();
+      final lastOnlineTime = row[3] == null ? "-" : row[3].toString();
+      final lastOnlineIp = row[4] == null ? "-" : row[4].toString();
+      final isDumbDevice = row[5].toString() == '是';
+      final name = row[6] == null ? '' : row[6].toString();
+
+      devices.add(
+        MacDevice(
+          name: name,
+          mac: mac,
+          isOnline: isOnline,
+          lastOnlineTime: lastOnlineTime,
+          lastOnlineIp: lastOnlineIp,
+          isDumbDevice: isDumbDevice,
+        ),
+      );
     }
 
     return devices;
@@ -91,55 +201,24 @@ extension MacDeviceExtension on MacDevice {
 }
 
 extension MonthlyBillExtension on MonthlyBill {
-  static final tbodyRegExp = RegExp(
-    r'<tbody[^>]*>(.*?)</tbody>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-  static final rowRegExp = RegExp(
-    r'<tr[^>]*>(.*?)</tr>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-  static final cellRegExp = RegExp(
-    r'<td[^>]*>(.*?)</td>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-
-  static List<MonthlyBill> parse(String html, int year) {
-    // Match tbody
-    final tbodyMatch = tbodyRegExp.firstMatch(html);
-
-    if (tbodyMatch == null) {
-      return const [];
-    }
-
-    // Match table rows
-    final tbodyContent = tbodyMatch.group(1) ?? '';
-    final rowMatches = rowRegExp.allMatches(tbodyContent);
-
+  static List<MonthlyBill> parse(Map<String, dynamic> json, int year) {
     final bills = <MonthlyBill>[];
+    final rows = json['rows'] as List<dynamic>? ?? [];
 
-    for (final row in rowMatches) {
-      final cells = cellRegExp
-          .allMatches(row.group(1) ?? '')
-          .map((cell) => _normalizeCell(cell.group(1) ?? ''))
-          .toList();
-
-      if (cells.length != 8) {
+    for (final row in rows) {
+      if (row is! List || row.length < 8) {
         continue;
       }
 
       try {
-        final startDate = DateTime.parse(cells[0]);
-        final endDate = DateTime.parse(cells[1]);
-        final packageName = cells[2];
-        final monthlyFee = _parseNumeric(cells[3]);
-        final usageFee = _parseNumeric(cells[4]);
-        final durationMinutes = _parseNumeric(cells[5]);
-        final flowMb = _parseNumeric(cells[6]);
-        final createTime = DateTime.parse(cells[7]);
+        final startDate = DateTime.fromMillisecondsSinceEpoch(row[0] as int);
+        final endDate = DateTime.fromMillisecondsSinceEpoch(row[1] as int);
+        final packageName = row[2] as String;
+        final monthlyFee = (row[3] as num).toDouble();
+        final usageFee = (row[4] as num).toDouble();
+        final durationMinutes = (row[5] as num).toDouble();
+        final flowMb = (row[6] as num).toDouble();
+        final createTime = DateTime.fromMillisecondsSinceEpoch(row[7] as int);
 
         bills.add(
           MonthlyBill(
@@ -161,19 +240,6 @@ extension MonthlyBillExtension on MonthlyBill {
     }
 
     return bills;
-  }
-
-  static String _normalizeCell(String input) {
-    final withoutTags = input.replaceAll(RegExp(r'<[^>]*>'), '');
-    return withoutTags.replaceAll('&nbsp;', ' ').trim();
-  }
-
-  static double _parseNumeric(String input) {
-    final cleaned = input.replaceAll(RegExp(r'[^0-9\.-]'), '');
-    if (cleaned.isEmpty) {
-      return 0;
-    }
-    return double.tryParse(cleaned) ?? 0;
   }
 }
 

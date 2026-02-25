@@ -1,59 +1,59 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import '/services/net/convert.dart';
 import '/types/net.dart';
 import '/services/net/base.dart';
 import '/services/net/exceptions.dart';
 
 class DrcomNetService extends BaseNetService {
-  DrcomNetService({http.Client? client}) : _client = client ?? http.Client();
+  late final Dio _dio;
+  late final CookieJar _cookieJar;
 
-  @override
-  String get defaultBaseUrl => 'http://zifuwu.ustb.edu.cn:8080';
-  // Alternative VPN URL:
-  // 'https://vpn.ustb.edu.cn/http-8080/77726476706e69737468656265737421a2a713d275603c1e2858c7fb';
-
-  final http.Client _client;
-  String? _cookie;
-
-  Map<String, String> _buildHeaders({bool includeFormContentType = false}) {
-    final headers = <String, String>{
-      'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    };
-    if (includeFormContentType) {
-      headers['Content-Type'] = 'application/x-www-form-urlencoded';
-    }
-    if (_cookie != null && _cookie!.isNotEmpty) {
-      headers['Cookie'] = _cookie!;
-    }
-    return headers;
-  }
-
-  void _updateCookie(http.Response response) {
-    final setCookie = response.headers['set-cookie'];
-    if (setCookie != null && setCookie.isNotEmpty) {
-      _cookie = setCookie.split(';').first;
-    }
-  }
-
-  Uri _buildUri(String path, [Map<String, String>? query]) {
-    return Uri.parse('$baseUrl/$path').replace(queryParameters: query);
-  }
-
-  @override
-  Future<LoginRequirements> doGetLoginRequirements() async {
-    final response = await _client.get(
-      _buildUri('nav_login'),
-      headers: _buildHeaders(),
+  DrcomNetService() {
+    _cookieJar = CookieJar();
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: defaultBaseUrl,
+        contentType: Headers.formUrlEncodedContentType,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        },
+        followRedirects: false,
+        validateStatus: (status) =>
+            status != null && status >= 200 && status < 400,
+      ),
     );
-    NetServiceException.raiseForStatus(response.statusCode);
-    _updateCookie(response);
+    _dio.interceptors.add(CookieManager(_cookieJar));
+  }
+
+  @override
+  String get defaultBaseUrl => 'https://zifuwu.ustb.edu.cn';
+
+  @override
+  set baseUrl(String url) {
+    super.baseUrl = url;
+    _dio.options.baseUrl = url;
+  }
+
+  @override
+  Future<NetDashboardSessionState> doGetSessionState() async {
+    final response = await _dio.get(
+      '/Self/login/',
+      options: Options(responseType: ResponseType.plain),
+    );
+    NetServiceException.raiseForStatus(response.statusCode!);
+
+    final sessionState = NetDashboardSessionStateExtension.parseFromHtml(
+      response.data as String,
+    );
+
     await getCodeImage(); // This request is to make the session valid
-    return LoginRequirementsExtension.parse(response.body);
+    return sessionState;
   }
 
   @override
@@ -61,7 +61,7 @@ class DrcomNetService extends BaseNetService {
     required String username,
     required String passwordMd5,
     required String checkCode,
-    String? extraCode,
+    String? randomCode,
   }) async {
     if (username.isEmpty) {
       throw const NetServiceException('Missing username');
@@ -70,48 +70,56 @@ class DrcomNetService extends BaseNetService {
       throw const NetServiceException('Missing password');
     }
 
-    final response = await _client.post(
-      _buildUri('LoginAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {
+    final response = await _dio.post(
+      '/Self/login/verify',
+      data: {
+        'checkcode': checkCode,
         'account': username,
         'password': passwordMd5,
-        'code': extraCode ?? '',
-        'checkcode': checkCode,
-        'Submit': 'Login',
+        'code': randomCode ?? '',
       },
     );
-    NetServiceException.raiseForStatus(response.statusCode, setOffline);
-    _updateCookie(response);
-    if (!response.body.contains('class="account"')) {
-      throw const NetServiceBadResponse('Unexpected login response');
+
+    // Check for redirect to dashboard (success) or back to login (failure)
+    if (response.statusCode == 302) {
+      final location = response.headers.value('location') ?? '';
+      if (location.contains('dashboard')) {
+        return;
+      } else {
+        throw const NetServiceBadResponse(
+          'Login failed: redirected to login page',
+        );
+      }
     }
+
+    NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+    throw const NetServiceBadResponse('Unexpected login response');
   }
 
   @override
   Future<void> doLogout() async {
-    final response = await _client.get(
-      _buildUri('LogoutAction.action'),
-      headers: _buildHeaders(),
+    final response = await _dio.get(
+      '/Self/login/logout',
+      options: Options(responseType: ResponseType.plain),
     );
-    if (response.statusCode >= 400) {
+    // Expect 302 redirect to /Self/
+    if (response.statusCode! >= 400) {
       if (kDebugMode) {
         print('Net service logout failed: ${response.statusCode}');
       }
     }
-    _cookie = null;
+    await _cookieJar.deleteAll();
   }
 
   @override
   Future<Uint8List> getCodeImage() async {
-    final randomNum = Random().nextDouble().toString();
-    final response = await _client.get(
-      _buildUri('RandomCodeAction.action', {'randomNum': randomNum}),
-      headers: _buildHeaders(),
+    final response = await _dio.get(
+      '/Self/login/randomCode',
+      queryParameters: {'t': Random().nextDouble().toString()},
+      options: Options(responseType: ResponseType.bytes),
     );
-    NetServiceException.raiseForStatus(response.statusCode);
-    _updateCookie(response);
-    return response.bodyBytes;
+    NetServiceException.raiseForStatus(response.statusCode!);
+    return response.data as Uint8List;
   }
 
   @override
@@ -121,8 +129,15 @@ class DrcomNetService extends BaseNetService {
     }
 
     try {
-      final jsonStr = await _loadUserInfoJson();
-      return NetUserInfoExtension.parse(jsonStr);
+      final response = await _dio.get(
+        '/Self/dashboard',
+        options: Options(responseType: ResponseType.plain),
+      );
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+      await refreshCsrfFrom('Self/dashboard');
+
+      return NetUserInfoExtension.parseFromHtml(response.data as String);
     } on NetServiceException {
       rethrow;
     } catch (e) {
@@ -131,56 +146,126 @@ class DrcomNetService extends BaseNetService {
   }
 
   @override
-  Future<void> doRetainMacs(List<String> normalizedMacs) async {
-    // Drcom's f**king API only supports passing the MACs you want to retain
-    // to archive the effect of unbinding other MACs, LOL. 😝 What a shit!
-    final response = await _client.post(
-      _buildUri('nav_unbindMACAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {'macStr': normalizedMacs.join(';'), 'Submit': '解绑'},
+  Future<void> doBindMac({
+    required String macAddress,
+    required String terminalName,
+    required bool isDumbTerminal,
+  }) async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final response = await _dio.post(
+      '/Self/service/bindMac',
+      data: {
+        'macAddress': macAddress.toUpperCase(),
+        'terminalName': terminalName,
+        'terminalType': isDumbTerminal ? '1' : '0',
+      },
+      options: Options(contentType: 'application/json; charset=utf-8'),
     );
-    NetServiceException.raiseForStatus(response.statusCode, setOffline);
-  }
+    NetServiceException.raiseForStatus(response.statusCode!, setOffline);
 
-  @override
-  Future<List<MacDevice>> getBoundedMac() async {
-    final html = await () async {
-      final response = await _client.get(
-        _buildUri('nav_unBandMacJsp'),
-        headers: _buildHeaders(),
-      );
-      NetServiceException.raiseForStatus(response.statusCode, setOffline);
-      return response.body;
-    }();
-    return MacDeviceExtension.parse(html);
-  }
-
-  Future<Map<String, dynamic>> _loadUserInfoJson({String? macAddress}) async {
-    final query = <String, String>{
-      't': Random().nextDouble().toStringAsFixed(6),
-    };
-    if (macAddress != null && macAddress.isNotEmpty) {
-      query['macStr'] = macAddress;
-    }
-    query['Submit'] = '解绑';
-
-    final response = await _client.get(
-      _buildUri('refreshaccount', query),
-      headers: _buildHeaders(),
-    );
-    NetServiceException.raiseForStatus(response.statusCode, setOffline);
-    _updateCookie(response);
     try {
-      final decoded = json.decode(response.body);
-      return decoded['note'] as Map<String, dynamic>;
+      final decoded = response.data;
+      if (decoded['state'] != 'success') {
+        throw NetServiceBadResponse(
+          'MAC binding failed: ${decoded['data'] ?? 'Unknown error'}',
+        );
+      }
     } catch (e) {
       if (e is NetServiceException) rethrow;
-      throw NetServiceBadResponse('Failed to parse user info', e);
+      throw NetServiceBadResponse('Failed to parse MAC binding response', e);
     }
   }
 
   @override
-  Future<List<MonthlyBill>> getMonthlyBill({required int year}) async {
+  Future<void> doUnbindMac(String macAddress) async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+      cachedSessionState!,
+      'Self/service/unbindmac',
+    );
+
+    final response = await _dio.get(
+      '/Self/service/unbindmac',
+      queryParameters: {
+        'mac': macAddress.toUpperCase(),
+        'ajaxCsrfToken': csrfToken,
+      },
+    );
+    // Expect 302 redirect to /Self/service/myMac
+    if (response.statusCode == 302) {
+      final location = response.headers.value('location') ?? '';
+      if (location.contains('myMac')) {
+        return;
+      }
+    }
+    NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+  }
+
+  @override
+  Future<void> doRenameMac({
+    required String macAddress,
+    required String terminalName,
+  }) async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+      cachedSessionState!,
+      'Self/service/updateTerminalName',
+    );
+
+    final response = await _dio.post(
+      '/Self/service/updateTerminalName',
+      data: {
+        't': Random().nextDouble().toString(),
+        'macAddress': macAddress.toUpperCase(),
+        'terminalName': terminalName,
+        'ajaxCsrfToken': csrfToken,
+      },
+    );
+    NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+    try {
+      final jsonMap = response.data;
+      final state = jsonMap['state'];
+      if (state != 'success') {
+        throw NetServiceException('Failed to rename device: $state');
+      }
+    } catch (e) {
+      if (e is NetServiceException) rethrow;
+      throw NetServiceBadResponse('Failed to parse rename response', e);
+    }
+  }
+
+  @override
+  Future<List<MacDevice>> getDeviceList() async {
+    await refreshCsrfFrom('Self/service/myMac');
+
+    final response = await _dio.get(
+      '/Self/service/getMacList',
+      queryParameters: {
+        'pageSize': '100', // Fetch enough to cover most users
+        'pageNumber': '1',
+        'sortName': '2',
+        'sortOrder': 'desc',
+        '_': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+      options: Options(responseType: ResponseType.plain),
+    );
+    NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+    try {
+      final jsonMap =
+          json.decode(response.data as String) as Map<String, dynamic>;
+      return MacDeviceExtension.parse(jsonMap);
+    } catch (e) {
+      throw NetServiceBadResponse('Failed to parse mac list', e);
+    }
+  }
+
+  @override
+  Future<List<MonthlyBill>> getMonthPay({required int year}) async {
     if (year <= 0) {
       throw const NetServiceException('Invalid year');
     }
@@ -189,24 +274,69 @@ class DrcomNetService extends BaseNetService {
     }
 
     try {
-      final response = await _client.post(
-        _buildUri('MonthPayAction.action'),
-        headers: _buildHeaders(includeFormContentType: true),
-        body: {'type': '1', 'year': year.toString()},
+      final response = await _dio.get(
+        '/Self/bill/getMonthPay',
+        queryParameters: {
+          't': Random().nextDouble().toString(),
+          'pageSize': '100',
+          'pageNumber': '1',
+          'sortName': '0',
+          'sortOrder': 'desc',
+          'year': year.toString(),
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        options: Options(responseType: ResponseType.plain),
       );
-      NetServiceException.raiseForStatus(response.statusCode, setOffline);
-      _updateCookie(response);
-      final html = response.body;
-      return MonthlyBillExtension.parse(html, year);
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+      final jsonData =
+          json.decode(response.data as String) as Map<String, dynamic>;
+      return MonthlyBillExtension.parse(jsonData, year);
     } on NetServiceException {
       rethrow;
     } catch (e) {
-      throw NetServiceNetworkError('Failed to load net monthly bill', e);
+      throw NetServiceNetworkError('Failed to load monthly bill', e);
     }
   }
 
   @override
-  Future<void> doChangePassword({
+  Future<Map<String, dynamic>> getUserOnlineLog({
+    required DateTime startTime,
+    required DateTime endTime,
+  }) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      final startStr =
+          '${startTime.year}-${startTime.month.toString().padLeft(2, '0')}-${startTime.day.toString().padLeft(2, '0')}';
+      final endStr =
+          '${endTime.year}-${endTime.month.toString().padLeft(2, '0')}-${endTime.day.toString().padLeft(2, '0')}';
+
+      final response = await _dio.get(
+        '/Self/bill/getUserOnlineLog',
+        queryParameters: {
+          't': Random().nextDouble().toStringAsFixed(6),
+          'pageSize': '100',
+          'pageNumber': '1',
+          'sortName': 'loginTime',
+          'sortOrder': 'desc',
+          'startTime': startStr,
+          'endTime': endStr,
+          '_': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+      );
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+      return response.data as Map<String, dynamic>;
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to load user online log', e);
+    }
+  }
+
+  @override
+  Future<void> changePassword({
     required String oldPassword,
     required String newPassword,
   }) async {
@@ -214,28 +344,75 @@ class DrcomNetService extends BaseNetService {
       throw const NetServiceOffline();
     }
 
-    final response = await _client.post(
-      _buildUri('ChangePswAction.action'),
-      headers: _buildHeaders(includeFormContentType: true),
-      body: {
-        'user.flduserpassword': oldPassword,
-        'user.fldmd5hehai': newPassword,
-        'user.fldextend': newPassword,
-        'Submit': 'Submit',
-      },
-    );
-    NetServiceException.raiseForStatus(response.statusCode, setOffline);
+    try {
+      await refreshCsrfFrom('Self/setting/changePassword');
 
-    final responseText = response.body.toLowerCase();
-    if (!responseText.contains('修改成功') &&
-        !responseText.contains('modified successfully')) {
-      throw const NetServiceBadResponse(
-        'Password changing response may failed',
+      final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+        cachedSessionState!,
+        'changePasswordForm',
       );
+
+      final response = await _dio.post(
+        '/Self/v2/password',
+        data: {
+          'csrftoken': csrfToken,
+          'oldPassword': oldPassword,
+          'newPassword': newPassword,
+          'confirmPassword': newPassword,
+        },
+        options: Options(contentType: 'application/json; charset=utf-8'),
+      );
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+      final decoded = response.data;
+      if (decoded['state'] != 'success') {
+        throw NetServiceBadResponse(
+          '${decoded['data'] ?? 'Unknown error while changing password'}',
+        );
+      }
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to change password', e);
     }
   }
 
   @override
+  Future<void> changeConsumeProtect({int? maxConsume}) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      await refreshCsrfFrom('Self/service/consumeProtect');
+
+      final csrfToken = NetDashboardSessionStateExtension.getCsrf(
+        cachedSessionState!,
+        'form',
+      );
+
+      maxConsume ??= 999999;
+      maxConsume = maxConsume.clamp(0, 999999);
+
+      final response = await _dio.post(
+        '/Self/service/changeConsumeProtect',
+        data: {'csrftoken': csrfToken, 'consumeLimit': maxConsume.toString()},
+      );
+      // Expect 302 redirect to /Self/service/consumeProtect
+      if (response.statusCode == 302) {
+        final location = response.headers.value('location') ?? '';
+        if (location.contains('consumeProtect')) {
+          return;
+        }
+      }
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to change consume protect', e);
+    }
+  }
+
   @override
   Future<RealtimeUsage> getRealtimeUsage(
     String username, {
@@ -247,18 +424,20 @@ class DrcomNetService extends BaseNetService {
           'https://elib.ustb.edu.cn/http-801/77726476706e69737468656265737421a2a713d275603c1e2a50c7face';
       final randomNum = Random().nextInt(1000000).toString();
       final base = viaVpn ? usageServerElib : usageServerUrl;
-      final uri = Uri.parse(
+
+      // Use a separate Dio instance for this external service
+      final usageDio = Dio();
+      final response = await usageDio.get(
         '$base/eportal/portal/visitor/loadUserFlow'
         '?callback=dr1003'
         '&account=$username'
         '&jsVersion=4.1'
         '&v=$randomNum'
         '&lang=zh',
+        options: Options(responseType: ResponseType.plain),
       );
-
-      final response = await _client.get(uri, headers: _buildHeaders());
-      NetServiceException.raiseForStatus(response.statusCode);
-      return RealtimeUsageExtension.parse(response.body);
+      NetServiceException.raiseForStatus(response.statusCode!);
+      return RealtimeUsageExtension.parse(response.data as String);
     } on NetServiceException {
       rethrow;
     } catch (e) {
@@ -266,7 +445,51 @@ class DrcomNetService extends BaseNetService {
     }
   }
 
-  void dispose() {
-    _client.close();
+  Future<void> refreshCsrfFrom(String path) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    try {
+      final response = await _dio.get(
+        '/$path',
+        options: Options(responseType: ResponseType.plain),
+      );
+      NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+      if (cachedSessionState != null) {
+        final updatedState = NetDashboardSessionStateExtension.updateCsrf(
+          cachedSessionState!,
+          response.data as String,
+        );
+        updateSessionState(updatedState);
+
+        try {
+          final refreshAccountToken = NetDashboardSessionStateExtension.getCsrf(
+            cachedSessionState!,
+            'Self/dashboard/refreshaccount',
+          );
+
+          final response = await _dio.get(
+            '/Self/dashboard/refreshaccount',
+            queryParameters: {
+              'csrftoken': refreshAccountToken,
+              't': Random().nextDouble().toString(),
+            },
+          );
+          NetServiceException.raiseForStatus(response.statusCode!, setOffline);
+
+          if (kDebugMode) {
+            print("Net dashboard CSRF token refreshed for $path");
+          }
+        } catch (_) {
+          // ignored
+        }
+      }
+    } on NetServiceException {
+      rethrow;
+    } catch (e) {
+      throw NetServiceNetworkError('Failed to refresh CSRF token', e);
+    }
   }
 }

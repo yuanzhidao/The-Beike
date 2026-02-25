@@ -1,12 +1,16 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '/types/net.dart';
 import '/utils/app_bar.dart';
 import '/utils/page_mixins.dart';
 import '/utils/sync_embeded.dart';
 import 'bill.dart';
-import 'change_pswd.dart';
-import 'login.dart';
+import 'dialog_change_pswd.dart';
+import 'dialog_login.dart';
+import 'dialog_device_show.dart';
+import 'dialog_device_add.dart';
+import 'dialog_plan_show.dart';
+import 'dialog_change_max_consume.dart';
 
 class NetDashboardPage extends StatefulWidget {
   const NetDashboardPage({super.key});
@@ -66,8 +70,8 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     try {
       final results = await Future.wait([
         serviceProvider.netService.getUser(),
-        serviceProvider.netService.getBoundedMac(),
-        serviceProvider.netService.getMonthlyBill(year: _selectedYear),
+        serviceProvider.netService.getDeviceList(),
+        serviceProvider.netService.getMonthPay(year: _selectedYear),
       ]);
       final info = results[0] as NetUserInfo;
       final macDevices = results[1] as List<MacDevice>;
@@ -83,9 +87,12 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError(e.toString());
-      // Force logout on error
-      if (serviceProvider.netService.isOnline) {
-        serviceProvider.netService.logout();
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
       }
     } finally {
       if (mounted) {
@@ -104,6 +111,13 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError('刷新账户信息失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isRefreshingUser = false);
     }
@@ -116,12 +130,19 @@ class _NetDashboardPageState extends State<NetDashboardPage>
       _macDevices = null;
     });
     try {
-      final macDevices = await serviceProvider.netService.getBoundedMac();
+      final macDevices = await serviceProvider.netService.getDeviceList();
       if (!mounted) return;
       setState(() => _macDevices = macDevices);
     } catch (e) {
       if (!mounted) return;
       setError('刷新设备列表失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isRefreshingDevices = false);
     }
@@ -134,7 +155,7 @@ class _NetDashboardPageState extends State<NetDashboardPage>
       _monthlyBills = null;
     });
     try {
-      final monthlyBills = await serviceProvider.netService.getMonthlyBill(
+      final monthlyBills = await serviceProvider.netService.getMonthPay(
         year: _selectedYear,
       );
       final sortedBills = List<MonthlyBill>.from(monthlyBills)
@@ -144,6 +165,13 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     } catch (e) {
       if (!mounted) return;
       setError('刷新月度账单失败：$e');
+      if (!serviceProvider.netService.isOnline) {
+        setState(() {
+          _userInfo = null;
+          _macDevices = null;
+          _monthlyBills = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoadingBills = false);
     }
@@ -184,6 +212,40 @@ class _NetDashboardPageState extends State<NetDashboardPage>
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('更改校园网密码失败：$e')));
+        _refreshUserInfo();
+      }
+    }
+  }
+
+  Future<void> _showPlanDialog() async {
+    if (_userInfo?.plan == null) return;
+    await showDialog(
+      context: context,
+      builder: (context) => NetPlanShowDialog(userInfo: _userInfo!),
+    );
+  }
+
+  Future<void> _showChangeMaxConsumeDialog() async {
+    try {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) =>
+            NetChangeMaxConsumeDialog(currentMaxConsume: _userInfo?.maxConsume),
+      );
+
+      if (result == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('更改限额成功')));
+        }
+        await _refreshUserInfo();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('更改限额失败：$e')));
       }
     }
   }
@@ -215,7 +277,7 @@ class _NetDashboardPageState extends State<NetDashboardPage>
 
       if (confirm == true) {
         try {
-          await serviceProvider.logoutFromNetService();
+          await serviceProvider.netService.logout();
           // Clear cached login data
           serviceProvider.storeService.delConfig("net_account_data");
           if (mounted) {
@@ -226,7 +288,14 @@ class _NetDashboardPageState extends State<NetDashboardPage>
             });
           }
         } catch (e) {
-          if (mounted) setError('登出失败：$e');
+          if (mounted) setError('登出发生错误：$e');
+          if (!serviceProvider.netService.isOnline) {
+            setState(() {
+              _userInfo = null;
+              _macDevices = null;
+              _monthlyBills = null;
+            });
+          }
         }
       }
     } finally {
@@ -265,89 +334,49 @@ class _NetDashboardPageState extends State<NetDashboardPage>
 
     try {
       await serviceProvider.netService.setMacUnbounded(normalizedMac);
-      await _refreshDevices();
 
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('解绑设备成功')));
+        ).showSnackBar(const SnackBar(content: Text('解绑设备成功')));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('添加设备失败：$e')));
+        ).showSnackBar(SnackBar(content: Text('解绑设备失败：$e')));
       }
+    } finally {
+      await _refreshDevices();
     }
   }
 
-  // ignore: unused_element
   Future<void> _showAddDeviceDialog() async {
-    final macController = TextEditingController();
-
-    final result = await showDialog<String>(
+    final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('添加设备'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('请输入设备的物理地址（MAC 地址）', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: macController,
-              decoration: const InputDecoration(
-                counterText: '',
-                border: OutlineInputBorder(),
-              ),
-              textCapitalization: TextCapitalization.characters,
-              maxLength: 17,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(macController.text.trim()),
-            child: const Text('添加'),
-          ),
-        ],
-      ),
+      builder: (context) => const NetAddDeviceDialog(),
     );
 
-    if (result != null && result.isNotEmpty) {
-      await _handleAddDevice(result);
+    if (result != null) {
+      await _handleAddDevice(result['mac']!, result['name'] ?? '');
     }
   }
 
-  Future<void> _handleAddDevice(String mac) async {
+  Future<void> _handleAddDevice(String mac, String name) async {
     final macRegex = RegExp(
       r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$|^[0-9A-Fa-f]{12}$',
     );
     if (!macRegex.hasMatch(mac)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('MAC 地址格式不正确，应为 12 位十六进制数')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('MAC 地址格式不正确')));
       }
       return;
     }
 
     try {
-      final normalizedMac = mac.toLowerCase().replaceAll('-', ':');
-      final formattedMac = normalizedMac.length == 12
-          ? normalizedMac.replaceAllMapped(
-              RegExp(r'(.{2})(?!$)'),
-              (match) => '${match.group(0)}:',
-            )
-          : normalizedMac;
-
-      await serviceProvider.netService.setMacBounded(formattedMac);
-      await _refreshDevices();
+      await serviceProvider.netService.setMacBounded(mac, terminalName: name);
 
       if (mounted) {
         ScaffoldMessenger.of(
@@ -360,6 +389,8 @@ class _NetDashboardPageState extends State<NetDashboardPage>
           context,
         ).showSnackBar(SnackBar(content: Text('添加设备失败：$e')));
       }
+    } finally {
+      await _refreshDevices();
     }
   }
 
@@ -526,61 +557,159 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  info.account,
-                  style: theme.textTheme.headlineSmall,
-                  maxLines: 2,
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  iconSize: 20,
-                  padding: EdgeInsets.zero,
-                  color: theme.colorScheme.error,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // User info section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                info.realName,
+                                style: theme.textTheme.titleLarge,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                info.accountName,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        ElevatedButton.icon(
+                          label: const Text('登出'),
+                          icon: _isLoggingOut
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.logout),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                          ),
+                          onPressed: _isLoggingOut ? null : _showLogoutDialog,
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: _isLoggingOut ? null : _showLogoutDialog,
-                  icon: _isLoggingOut
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.logout),
-                ),
-              ],
+                  // Divider
+                  Divider(height: 4),
+                  // Flow progress bar section
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [_buildFlowProgressBarContent(theme, info)],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildActionChip(
-                  theme,
-                  icon: Icons.account_balance_wallet,
-                  label: '余额',
-                  value: info.leftMoney ?? 'NaN',
-                ),
-                if (info.subscription.isNotEmpty)
-                  _buildActionChip(
-                    theme,
-                    icon: Icons.wifi,
-                    label: '套餐',
-                    value: info.subscription,
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrowScreen = constraints.maxWidth < 300;
+                final items = [
+                  (
+                    Icons.account_balance_wallet,
+                    '余额',
+                    '¥${info.moneyLeft.toStringAsFixed(2)}',
+                    null as VoidCallback?,
                   ),
-                _buildActionChip(
-                  theme,
-                  icon: Icons.lock,
-                  label: '密码',
-                  value: '修改密码',
-                  onPressed: _isLoggingOut ? null : _showChangePasswordDialog,
-                ),
-              ],
+                  (
+                    Icons.security,
+                    '限额',
+                    info.maxConsume == null || info.maxConsume! >= 999999
+                        ? '未设置'
+                        : '¥${info.maxConsume}',
+                    _showChangeMaxConsumeDialog as VoidCallback?,
+                  ),
+                  if (info.plan != null)
+                    (
+                      Icons.wifi,
+                      '套餐',
+                      info.plan!.planName,
+                      _showPlanDialog as VoidCallback?,
+                    ),
+                  (
+                    Icons.lock,
+                    '密码',
+                    '修改密码',
+                    (_isLoggingOut ? null : _showChangePasswordDialog)
+                        as VoidCallback?,
+                  ),
+                ];
+
+                if (isNarrowScreen) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: List.generate(
+                      items.length,
+                      (index) => Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index < items.length - 1 ? 8 : 0,
+                        ),
+                        child: _buildActionChip(
+                          theme,
+                          icon: items[index].$1,
+                          label: items[index].$2,
+                          value: items[index].$3,
+                          onPressed: items[index].$4,
+                          isFullWidth: true,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: items
+                      .map(
+                        (item) => _buildActionChip(
+                          theme,
+                          icon: item.$1,
+                          label: item.$2,
+                          value: item.$3,
+                          onPressed: item.$4,
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
           ],
         ),
@@ -594,60 +723,246 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     required String label,
     required String value,
     VoidCallback? onPressed,
+    bool isFullWidth = false,
   }) {
+    final content = Row(
+      mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        if (isFullWidth)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Text(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+
+    final container = Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: content,
+    );
+
     if (onPressed != null) {
-      return ActionChip(
-        avatar: Icon(icon, size: 18),
-        label: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            Text(
-              value,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          child: container,
         ),
-        onPressed: onPressed,
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.5,
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       );
     }
 
-    return Chip(
-      avatar: Icon(icon, size: 18),
-      label: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+    return container;
+  }
+
+  Widget _buildFlowProgressBarContent(ThemeData theme, NetUserInfo info) {
+    final freeFlow = info.plan?.freeFlow ?? 0.0;
+    final flowUsed = info.flowUsed;
+    final flowLeft = freeFlow > 0
+        ? math.min(info.flowLeft, freeFlow - flowUsed)
+        : info.flowLeft;
+
+    final hasPackage = freeFlow > 0;
+    final freeGB = freeFlow / 1024;
+    final usedGB = flowUsed / 1024;
+    final leftGB = flowLeft / 1024;
+    final isOverLimit = hasPackage && flowLeft <= 0;
+    final exceededGB = isOverLimit ? -leftGB : 0.0;
+
+    // Determine ratios and colors for the cool progress bar
+    Color backgroundColor;
+    double ratio;
+
+    if (hasPackage) {
+      if (isOverLimit) {
+        backgroundColor = Colors.deepOrange;
+        ratio = freeFlow / (flowUsed > 0 ? flowUsed : 1.0);
+      } else {
+        backgroundColor = Colors.green;
+        ratio = flowUsed / (freeFlow > 0 ? freeFlow : 1.0);
+      }
+    } else {
+      // No package, pure blue bar representing current usage
+      backgroundColor = theme.colorScheme.primary.withValues(alpha: 0.1);
+      ratio = 1.0;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 16, // Fixed height for the progress bar
+            width: double.infinity,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (isOverLimit) {
+                  // Case Over Limit
+                  return _AnimatedWavyBar(
+                    ratio: 1.0,
+                    color: backgroundColor,
+                    maxWidth: constraints.maxWidth,
+                    child: Container(
+                      width: constraints.maxWidth,
+                      color: backgroundColor,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          width: constraints.maxWidth * ratio,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                // Case Normal
+                return Stack(
+                  children: [
+                    // Right side color (Remaining or Exceeded)
+                    Container(color: backgroundColor),
+                    // Left side color (Used or Limit) with wavy edge
+                    if (ratio > 0)
+                      _AnimatedWavyBar(
+                        ratio: ratio,
+                        color: theme.colorScheme.primary,
+                        maxWidth: constraints.maxWidth,
+                      ),
+                  ],
+                );
+              },
             ),
           ),
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-        alpha: 0.5,
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        ),
+        const SizedBox(height: 8),
+        // Labels
+        Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            if (!isOverLimit) ...[
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '已用 ${usedGB.toStringAsFixed(2)} GB',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+              if (hasPackage && leftGB > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '剩余 ${leftGB.toStringAsFixed(2)} GB',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+            ],
+            if (isOverLimit) ...[
+              if (freeFlow > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '配额 ${freeGB.toStringAsFixed(2)} GB',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '超出 ${exceededGB.toStringAsFixed(2)} GB',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
@@ -710,15 +1025,20 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                   return _buildMacListTile(theme, context, device);
                 },
               ),
-            // const SizedBox(height: 16),
-            // if (_macDevices != null && _macDevices!.length < 3)
-            //   Center(
-            //     child: OutlinedButton.icon(
-            //       onPressed: _showAddDeviceDialog,
-            //       icon: const Icon(Icons.add),
-            //       label: const Text('手动添加设备'),
-            //     ),
-            //   ),
+            const SizedBox(height: 16),
+            if (_macDevices != null && _macDevices!.length < 5)
+              ElevatedButton.icon(
+                onPressed: _showAddDeviceDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('手动添加新设备'),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: theme.colorScheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.all(12),
+                ),
+              ),
           ],
         ),
       ),
@@ -730,15 +1050,34 @@ class _NetDashboardPageState extends State<NetDashboardPage>
     BuildContext context,
     MacDevice device,
   ) {
-    final deviceMac = device.mac.toUpperCase();
+    var displayMac = device.mac.toUpperCase();
+    // Add colons if missing for better readability
+    if (RegExp(r'^[0-9A-F]{12}$').hasMatch(displayMac)) {
+      displayMac = displayMac.replaceAllMapped(
+        RegExp(r'.{2}'),
+        (match) => '${match.group(0)}:',
+      );
+      displayMac = displayMac.substring(
+        0,
+        displayMac.length - 1,
+      ); // remove last colon
+    }
+
     final deviceName = device.name.trim();
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Padding(
-            padding: const EdgeInsets.all(4),
-            child: const Icon(Icons.memory),
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              size: 22,
+              device.isOnline ? Icons.link : Icons.link_off,
+              color: device.isOnline
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.secondary,
+            ),
           ),
           Expanded(
             child: Column(
@@ -747,29 +1086,11 @@ class _NetDashboardPageState extends State<NetDashboardPage>
                 Row(
                   children: [
                     Text(
-                      deviceMac,
-                      style: theme.textTheme.bodyLarge?.copyWith(
+                      displayMac,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontFamily: 'monospace',
                         fontWeight: FontWeight.w500,
                       ),
-                    ),
-                    IconButton(
-                      iconSize: 14,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 24,
-                        minHeight: 24,
-                      ),
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: deviceMac));
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('所选设备的物理地址（MAC 地址）已复制到剪贴板'),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.content_copy),
                     ),
                   ],
                 ),
@@ -782,16 +1103,145 @@ class _NetDashboardPageState extends State<NetDashboardPage>
               ],
             ),
           ),
+          const SizedBox(width: 8),
           IconButton(
-            iconSize: 24,
-            padding: EdgeInsets.zero,
+            iconSize: 20,
+            color: theme.colorScheme.primary,
+            onPressed: () => showDialog(
+              context: context,
+              builder: (context) => NetDeviceShowDialog(
+                device: device,
+                onRename: (newName) async {
+                  try {
+                    await serviceProvider.netService.renameMac(
+                      device.mac,
+                      terminalName: newName,
+                    );
+                  } catch (_) {
+                    return false;
+                  }
+                  await _refreshDevices();
+                  return true;
+                },
+              ),
+            ),
+            icon: const Icon(Icons.info_outline),
+            tooltip: '详情',
+          ),
+          IconButton(
+            iconSize: 20,
             color: theme.colorScheme.error,
-            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: () => _handleUnbindMac(device),
-            icon: const Icon(Icons.link_off),
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '解绑设备',
           ),
         ],
       ),
+    );
+  }
+}
+
+class _WavyRightClipper extends CustomClipper<Path> {
+  final double baseWidth;
+  final double waveHeight;
+  final double waveCount;
+  final double offset;
+
+  _WavyRightClipper({
+    required this.baseWidth,
+    required this.waveHeight,
+    required this.waveCount,
+    required this.offset,
+  });
+
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(baseWidth, 0);
+
+    const double step = 0.5;
+    for (double y = 0; y <= size.height; y += step) {
+      final double normalizedY = y / size.height;
+      final double xOffset =
+          math.sin((normalizedY * waveCount + offset) * 2 * math.pi) *
+          waveHeight;
+      path.lineTo(baseWidth + xOffset, y);
+    }
+
+    path.lineTo(0, size.height);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(_WavyRightClipper oldClipper) =>
+      oldClipper.offset != offset ||
+      oldClipper.baseWidth != baseWidth ||
+      oldClipper.waveHeight != waveHeight ||
+      oldClipper.waveCount != waveCount;
+}
+
+class _AnimatedWavyBar extends StatefulWidget {
+  final double ratio;
+  final Color color;
+  final double maxWidth;
+  final Widget? child;
+
+  const _AnimatedWavyBar({
+    required this.ratio,
+    required this.color,
+    required this.maxWidth,
+    this.child,
+  });
+
+  @override
+  State<_AnimatedWavyBar> createState() => _AnimatedWavyBarState();
+}
+
+class _AnimatedWavyBarState extends State<_AnimatedWavyBar>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double waveHeight = 2.0;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        // If ratio is 1.0, we pull the base width back slightly to ensure
+        // the wave peaks (baseWidth + waveHeight) don't get cut by the container edge.
+        final double baseWidth = widget.ratio >= 1.0
+            ? (widget.maxWidth - waveHeight)
+            : (widget.maxWidth * widget.ratio);
+
+        return ClipPath(
+          clipper: _WavyRightClipper(
+            baseWidth: baseWidth,
+            offset: _controller.value,
+            waveHeight: waveHeight,
+            waveCount: 0.618,
+          ),
+          child:
+              widget.child ??
+              Container(width: widget.maxWidth, color: widget.color),
+        );
+      },
     );
   }
 }

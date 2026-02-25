@@ -1,5 +1,6 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import '/types/courses.dart';
 import '/services/base.dart';
 import '/services/courses/base.dart';
@@ -93,76 +94,82 @@ class _CourseSelectionSharedParams {
 }
 
 class UstbByytService extends BaseCoursesService {
-  String? _cookie;
+  late final Dio _dio;
+  late final CookieJar _cookieJar;
   CourseSelectionState _selectionState = CourseSelectionState();
+
+  UstbByytService() {
+    _cookieJar = CookieJar();
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: defaultBaseUrl,
+        contentType: Headers.formUrlEncodedContentType,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    _dio.interceptors.add(CookieManager(_cookieJar));
+  }
 
   @override
   String get defaultBaseUrl => 'https://byyt.ustb.edu.cn';
 
   @override
-  Future<void> doLogin() async {}
+  set baseUrl(String url) {
+    super.baseUrl = url;
+    _dio.options.baseUrl = url;
+  }
 
-  Future<void> loginWithCookie(String cookie) async {
+  @override
+  Future<void> doLogin(String cookie) async {
     try {
-      setPending();
-      _cookie = cookie;
+      final uri = Uri.parse(baseUrl);
+      final cookies = cookie
+          .split(';')
+          .map((c) {
+            final parts = c.trim().split('=');
+            if (parts.length >= 2) {
+              return Cookie(parts[0], parts.sublist(1).join('='));
+            }
+            return null;
+          })
+          .whereType<Cookie>()
+          .toList();
+
+      await _cookieJar.saveFromResponse(uri, cookies);
 
       // Validate cookie by trying to get user info
       await getUserInfo();
-
-      await doLogin();
-
-      setOnline();
     } catch (e) {
-      _cookie = null;
-      if (e is CourseServiceNetworkError) {
-        setError('Failed to login with cookie (network error): $e');
-      } else if (e is CourseServiceException) {
-        setError('Failed to login with cookie: $e');
-      } else {
-        throw CourseServiceException(
-          'Failed to login with cookie (unexpected exception)',
-          e,
-        );
-      }
+      await _cookieJar.deleteAll();
+      if (e is CourseServiceException) rethrow;
+      throw CourseServiceException(
+        'Failed to login with cookie (unexpected exception)',
+        e,
+      );
     }
-  }
-
-  Map<String, String> _getHeaders() {
-    final headers = <String, String>{
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    };
-
-    if (_cookie != null) {
-      headers['Cookie'] = _cookie!;
-    }
-
-    return headers;
   }
 
   @override
   Future<void> doLogout() async {
-    _cookie = null;
+    await _cookieJar.deleteAll();
     _selectionState = CourseSelectionState();
-    setOffline();
   }
 
   @override
   Future<bool> doSendHeartbeat() async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       return false;
     }
 
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/component/online'),
-        headers: _getHeaders(),
-      );
+      final response = await _dio.post('/component/online');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = response.data;
 
         final success = data['code'] == 0;
 
@@ -181,26 +188,23 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<UserInfo> getUserInfo() async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/user/me'),
-        headers: _getHeaders(),
-      );
+      response = await _dio.post('/user/me');
     } catch (e) {
       throw CourseServiceNetworkError('Failed to to get user info', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, () {
+    CourseServiceException.raiseForStatus(response.statusCode!, () {
       setError();
     });
 
     try {
-      return UserInfoUstbByytExtension.parse(json.decode(response.body));
+      return UserInfoUstbByytExtension.parse(response.data);
     } on CourseServiceException {
       rethrow;
     } catch (e) {
@@ -210,39 +214,34 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<CourseGradeItem>> getGrades() async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      final requestBody = json.encode({
-        'xn': null,
-        'xq': null,
-        'kcmc': null,
-        'cxbj': '-1',
-        'pylx': '1',
-        'current': 1,
-        'pageSize': 1000,
-        'sffx': null,
-      });
-
-      response = await http.post(
-        Uri.parse('$baseUrl/cjgl/grcjcx/grcjcx'),
-        headers: {
-          ..._getHeaders(),
-          'Content-Type': 'application/json', // This endpoint expects JSON
+      response = await _dio.post(
+        '/cjgl/grcjcx/grcjcx',
+        data: {
+          'xn': null,
+          'xq': null,
+          'kcmc': null,
+          'cxbj': '-1',
+          'pylx': '1',
+          'current': 1,
+          'pageSize': 1000,
+          'sffx': null,
         },
-        body: requestBody,
+        options: Options(contentType: Headers.jsonContentType),
       );
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get grades', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['code'] != 200) {
         throw CourseServiceBadRequest(
@@ -275,26 +274,31 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<ExamInfo>> getExams(TermInfo termInfo) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/kscxtj/queryXsksByxhList'),
-        headers: _getHeaders(),
-        body:
-            'ppylx=1&pkkyx=&pxn=${termInfo.year}&pxq=${termInfo.season}&pageNum=1&pageSize=40',
+      response = await _dio.post(
+        '/kscxtj/queryXsksByxhList',
+        data: {
+          'ppylx': '1',
+          'pkkyx': '',
+          'pxn': termInfo.year,
+          'pxq': termInfo.season.toString(),
+          'pageNum': '1',
+          'pageSize': '40',
+        },
       );
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get exams', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['code'] != null && data['code'] != 200) {
         throw CourseServiceBadRequest(
@@ -323,25 +327,28 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<ClassItem>> getCurriculum(TermInfo termInfo) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/Xskbcx/queryXskbcxList'),
-        headers: _getHeaders(),
-        body: 'bs=2&xn=${termInfo.year}&xq=${termInfo.season}',
+      response = await _dio.post(
+        '/Xskbcx/queryXskbcxList',
+        data: {
+          'bs': '2',
+          'xn': termInfo.year,
+          'xq': termInfo.season.toString(),
+        },
       );
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get curriculum', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       // Handle different response formats
       List<dynamic> curriculumList;
@@ -392,12 +399,11 @@ class UstbByytService extends BaseCoursesService {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/component/queryKbjg'),
-        headers: _getHeaders(),
-        body: {
+      response = await _dio.post(
+        '/component/queryKbjg',
+        data: {
           'xn': termInfo.year,
           'xq': termInfo.season.toString(),
           'nodataqx': '1',
@@ -407,10 +413,10 @@ class UstbByytService extends BaseCoursesService {
       throw CourseServiceNetworkError('Failed to get course periods', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['code'] != 200) {
         throw CourseServiceBadRequest(
@@ -443,18 +449,13 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<CalendarDay>> getCalendarDays(TermInfo termInfo) async {
-    http.Response response;
-
-    final formData = {'xn': termInfo.year, 'xq': termInfo.season.toString()};
+    Response response;
 
     try {
-      final headers = _getHeaders();
-      headers['Rolecode'] = '01';
-
-      response = await http.post(
-        Uri.parse('$baseUrl/Xiaoli/queryMonthList'),
-        headers: headers,
-        body: formData,
+      response = await _dio.post(
+        '/Xiaoli/queryMonthList',
+        data: {'xn': termInfo.year, 'xq': termInfo.season.toString()},
+        options: Options(headers: {'Rolecode': '01'}),
       );
     } catch (e) {
       throw CourseServiceNetworkError(
@@ -463,10 +464,10 @@ class UstbByytService extends BaseCoursesService {
       );
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
       final List<dynamic> xlListJson = data['xlList'] as List<dynamic>;
       final List<CalendarDay> calendarDays = xlListJson
           .map(
@@ -492,11 +493,11 @@ class UstbByytService extends BaseCoursesService {
     TermInfo termInfo, [
     String? tab,
   ]) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       if (tab != null) {
         final params = _CourseSelectionSharedParams(
@@ -505,11 +506,7 @@ class UstbByytService extends BaseCoursesService {
         );
         final formData = params.toFormData();
 
-        response = await http.post(
-          Uri.parse('$baseUrl/Xsxk/queryKxrw'),
-          headers: _getHeaders(),
-          body: formData,
-        );
+        response = await _dio.post('/Xsxk/queryKxrw', data: formData);
       } else {
         final params = _CourseSelectionSharedParams(
           termInfo: termInfo,
@@ -517,20 +514,16 @@ class UstbByytService extends BaseCoursesService {
         );
         final formData = params.toFormData();
 
-        response = await http.post(
-          Uri.parse('$baseUrl/Xsxk/queryYxkc'),
-          headers: _getHeaders(),
-          body: formData,
-        );
+        response = await _dio.post('/Xsxk/queryYxkc', data: formData);
       }
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get selected courses', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       // Handle different response formats
       if (data is Map<String, dynamic> && data.containsKey('code')) {
@@ -584,11 +577,11 @@ class UstbByytService extends BaseCoursesService {
     TermInfo termInfo,
     String tab,
   ) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       final params = _CourseSelectionSharedParams(
         termInfo: termInfo,
@@ -599,19 +592,15 @@ class UstbByytService extends BaseCoursesService {
       formData['pageNum'] = '1';
       formData['pageSize'] = '1000';
 
-      response = await http.post(
-        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
-        headers: _getHeaders(),
-        body: formData,
-      );
+      response = await _dio.post('/Xsxk/queryKxrw', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get selectable courses', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       final kxrwList = data['kxrwList'] as Map<String, dynamic>?;
 
@@ -641,11 +630,11 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<CourseTab>> getCourseTabs(TermInfo termInfo) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       final params = _CourseSelectionSharedParams(
         termInfo: termInfo,
@@ -653,19 +642,15 @@ class UstbByytService extends BaseCoursesService {
       );
       final formData = params.toFormData();
 
-      response = await http.post(
-        Uri.parse('$baseUrl/Xsxk/queryYxkc'),
-        headers: _getHeaders(),
-        body: formData,
-      );
+      response = await _dio.post('/Xsxk/queryYxkc', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get course tabs', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       final tabsList = data['xkgzszList'] as List<dynamic>? ?? [];
 
@@ -684,25 +669,24 @@ class UstbByytService extends BaseCoursesService {
 
   @override
   Future<List<TermInfo>> getTerms() async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
-      response = await http.post(
-        Uri.parse('$baseUrl/component/queryXnxq'),
-        headers: _getHeaders(),
-        body: {'data': 'cTnrJ54+H2bKCT5c1Gq1+w=='},
+      response = await _dio.post(
+        '/component/queryXnxq',
+        data: {'data': 'cTnrJ54+H2bKCT5c1Gq1+w=='},
       );
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get terms', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['code'] != 200) {
         throw CourseServiceBadRequest(
@@ -734,11 +718,11 @@ class UstbByytService extends BaseCoursesService {
     TermInfo termInfo,
     CourseInfo courseInfo,
   ) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       final params = _CourseSelectionSharedParams(
         termInfo: termInfo,
@@ -750,19 +734,15 @@ class UstbByytService extends BaseCoursesService {
       formData['pageNum'] = '1';
       formData['pageSize'] = '1000';
 
-      response = await http.post(
-        Uri.parse('$baseUrl/Xsxk/queryKxrw'),
-        headers: _getHeaders(),
-        body: formData,
-      );
+      response = await _dio.post('/Xsxk/queryKxrw', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get course detail', e);
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       final kxrwList = data['kxrwList'] as Map<String, dynamic>?;
 
@@ -806,11 +786,11 @@ class UstbByytService extends BaseCoursesService {
     TermInfo termInfo,
     CourseInfo courseInfo,
   ) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       final params = _CourseSelectionSharedParams(
         termInfo: termInfo,
@@ -825,11 +805,7 @@ class UstbByytService extends BaseCoursesService {
       formData['pageNum'] = '1';
       formData['pageSize'] = '100';
 
-      response = await http.post(
-        Uri.parse('$baseUrl/Xsxk/addGouwuche'),
-        headers: _getHeaders(),
-        body: formData,
-      );
+      response = await _dio.post('/Xsxk/addGouwuche', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError(
         'Failed to send course selection request',
@@ -837,10 +813,10 @@ class UstbByytService extends BaseCoursesService {
       );
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['jg'] != 1 && data['jg'] != '1') {
         throw CourseServiceBadRequest('${data['message'] ?? 'No msg'}');
@@ -861,11 +837,11 @@ class UstbByytService extends BaseCoursesService {
     TermInfo termInfo,
     CourseInfo courseInfo,
   ) async {
-    if (status == ServiceStatus.offline || _cookie == null) {
+    if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
-    http.Response response;
+    Response response;
     try {
       final params = _CourseSelectionSharedParams(
         termInfo: termInfo,
@@ -880,11 +856,7 @@ class UstbByytService extends BaseCoursesService {
       formData['pageNum'] = '1';
       formData['pageSize'] = '100';
 
-      response = await http.post(
-        Uri.parse('$baseUrl/Xsxk/tuike'),
-        headers: _getHeaders(),
-        body: formData,
-      );
+      response = await _dio.post('/Xsxk/tuike', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError(
         'Failed to send course deselection request',
@@ -892,10 +864,10 @@ class UstbByytService extends BaseCoursesService {
       );
     }
 
-    CourseServiceException.raiseForStatus(response.statusCode, setError);
+    CourseServiceException.raiseForStatus(response.statusCode!, setError);
 
     try {
-      final data = json.decode(response.body);
+      final data = response.data;
 
       if (data['jg'] != 1 && data['jg'] != '1') {
         throw CourseServiceBadRequest('${data['message'] ?? 'No msg'}');

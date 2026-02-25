@@ -36,10 +36,6 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
     super.dispose();
   }
 
-  bool _isPasswordValid(String password) {
-    return password.length >= 8 && password.length <= 16;
-  }
-
   bool get _isChangeAllowed {
     final oldPassword = _oldPasswordController.text;
     final newPassword = _newPasswordController.text;
@@ -59,14 +55,15 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
     if (newPassword != confirmPassword) {
       setState(() {
         _errorMessage = '新密码的填写不一致';
+        _confirmPasswordController.clear();
       });
       return;
     }
 
     // Validate password requirements
-    if (!_isPasswordValid(newPassword)) {
+    if (newPassword.length < 8 || newPassword.length > 32) {
       setState(() {
-        _errorMessage = '密码要求是 8~16 位';
+        _errorMessage = '新密码的长度要求是 8~32 位';
       });
       return;
     }
@@ -86,7 +83,7 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
       // Error occurred during changing password
       if (mounted) {
         setState(() {
-          _errorMessage = '更改密码失败，请检查输入';
+          _errorMessage = '$e';
           _isLoading = false;
         });
       }
@@ -97,7 +94,7 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
       // Logout and update cached credentials
       if (mounted) {
         try {
-          await _serviceProvider.logoutFromNetService();
+          await _serviceProvider.netService.logout();
         } catch (e) {
           if (mounted) {}
         }
@@ -178,6 +175,10 @@ class _NetChangePasswordDialogState extends State<NetChangePasswordDialog> {
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
+              Text(
+                "更改密码失败，原因如下：",
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
               Text(
                 _errorMessage!,
                 style: TextStyle(color: theme.colorScheme.error),

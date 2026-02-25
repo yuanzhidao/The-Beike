@@ -20,7 +20,6 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  bool _isNeedExtraCode = false;
   bool _isLoadingExtraCodeImage = false;
   Uint8List? _extraCodeImage;
 
@@ -64,14 +63,10 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
 
   Future<void> _refreshRequirement() async {
     try {
-      final needExtraCodeNew =
-          (await _serviceProvider.netService.getLoginRequirements())
-              .isNeedExtraCode;
+      final sessionState = await _serviceProvider.netService.getSessionState();
       if (mounted) {
-        setState(() {
-          _isNeedExtraCode = needExtraCodeNew;
-        });
-        if (needExtraCodeNew) {
+        setState(() {});
+        if (sessionState.needRandomCode) {
           await _loadExtraCodeImage();
         }
       }
@@ -149,10 +144,10 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
     });
 
     try {
-      await _serviceProvider.loginToNetService(
+      await _serviceProvider.netService.login(
         _usernameController.text.trim(),
         _passwordController.text,
-        extraCode: _extraCodeController.text.trim().isEmpty
+        randomCode: _extraCodeController.text.trim().isEmpty
             ? null
             : _extraCodeController.text.trim(),
       );
@@ -175,10 +170,7 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
         setState(() {
           _errorMessage = e.toString();
         });
-        _refreshRequirement();
-        if (_isNeedExtraCode) {
-          await _loadExtraCodeImage();
-        }
+        await _refreshRequirement();
         _extraCodeController.text = '';
       }
     } finally {
@@ -193,6 +185,7 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final state = _serviceProvider.netService.cachedSessionState;
 
     bool isLoginAllowed() {
       final username = _usernameController.text.trim();
@@ -242,7 +235,7 @@ class _NetLoginDialogState extends State<NetLoginDialog> {
                 ),
               ),
             ],
-            if (_isNeedExtraCode) ...[
+            if (state?.needRandomCode == true) ...[
               const SizedBox(height: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

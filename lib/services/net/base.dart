@@ -6,18 +6,18 @@ import '/services/base.dart';
 import '/services/net/exceptions.dart';
 import '/types/net.dart';
 
-abstract class BaseNetService with BaseService {
-  LoginRequirements? _cachedLoginRequirements;
+abstract class BaseNetService extends ChangeNotifier with BaseService {
+  NetDashboardSessionState? _cachedSessionState;
 
   // Methods need to be implemented:
 
-  Future<LoginRequirements> doGetLoginRequirements();
+  Future<NetDashboardSessionState> doGetSessionState();
 
   Future<void> doLogin({
     required String username,
     required String passwordMd5,
     required String checkCode,
-    String? extraCode,
+    String? randomCode,
   });
 
   Future<void> doLogout();
@@ -26,15 +26,33 @@ abstract class BaseNetService with BaseService {
 
   Future<NetUserInfo> getUser();
 
-  Future<void> doRetainMacs(List<String> normalizedMacs);
+  Future<List<MacDevice>> getDeviceList();
 
-  Future<List<MacDevice>> getBoundedMac();
+  Future<void> doBindMac({
+    required String macAddress,
+    required String terminalName,
+    required bool isDumbTerminal,
+  });
 
-  Future<List<MonthlyBill>> getMonthlyBill({required int year});
+  Future<void> doUnbindMac(String macAddress);
 
-  Future<void> doChangePassword({
+  Future<void> doRenameMac({
+    required String macAddress,
+    required String terminalName,
+  });
+
+  Future<void> changePassword({
     required String oldPassword,
     required String newPassword,
+  });
+
+  Future<void> changeConsumeProtect({int? maxConsume});
+
+  Future<List<MonthlyBill>> getMonthPay({required int year});
+
+  Future<Map<String, dynamic>> getUserOnlineLog({
+    required DateTime startTime,
+    required DateTime endTime,
   });
 
   Future<RealtimeUsage> getRealtimeUsage(
@@ -44,39 +62,47 @@ abstract class BaseNetService with BaseService {
 
   // Methods that already implemented:
 
-  Future<LoginRequirements> getLoginRequirements() async {
+  @protected
+  void updateSessionState(NetDashboardSessionState newState) {
+    _cachedSessionState = newState;
+    notifyListeners();
+  }
+
+  NetDashboardSessionState? get cachedSessionState => _cachedSessionState;
+
+  Future<NetDashboardSessionState> getSessionState() async {
     try {
-      final requirements = await doGetLoginRequirements();
-      _cachedLoginRequirements = requirements;
-      return requirements;
+      final sessionState = await doGetSessionState();
+      _cachedSessionState = sessionState;
+      return sessionState;
     } on NetServiceException {
       rethrow;
     } catch (e) {
-      throw NetServiceNetworkError('Failed to load login requirements', e);
+      throw NetServiceNetworkError('Failed to load session state', e);
     }
   }
 
-  Future<void> loginWithPassword(
+  Future<void> login(
     String username,
     String password, {
-    String? extraCode,
+    String? randomCode,
   }) async {
     try {
       setPending();
-      if (_cachedLoginRequirements == null) {
-        throw const NetServiceException('Login requirements not initialized');
+      if (_cachedSessionState == null) {
+        throw const NetServiceException('Session state not initialized');
       }
-      if (_cachedLoginRequirements!.isNeedExtraCode &&
-          (extraCode == null || extraCode.isEmpty)) {
-        throw const NetServiceException('Missing extra code');
+      if (_cachedSessionState!.needRandomCode &&
+          (randomCode == null || randomCode.isEmpty)) {
+        throw const NetServiceException('Missing random code');
       }
 
       final passwordMd5 = md5.convert(utf8.encode(password)).toString();
       await doLogin(
         username: username,
         passwordMd5: passwordMd5,
-        checkCode: _cachedLoginRequirements!.checkCode,
-        extraCode: extraCode,
+        checkCode: _cachedSessionState!.checkCode,
+        randomCode: randomCode,
       );
       setOnline();
     } on NetServiceException {
@@ -96,32 +122,12 @@ abstract class BaseNetService with BaseService {
         print('Net service logout error: $e');
       }
     } finally {
-      _cachedLoginRequirements = null;
+      _cachedSessionState = null;
       setOffline();
     }
   }
 
-  Future<void> changePassword({
-    required String oldPassword,
-    required String newPassword,
-  }) async {
-    if (isOffline) {
-      throw const NetServiceOffline();
-    }
-
-    try {
-      await doChangePassword(
-        oldPassword: oldPassword,
-        newPassword: newPassword,
-      );
-    } on NetServiceException {
-      rethrow;
-    } catch (e) {
-      throw NetServiceNetworkError('Failed to change password', e);
-    }
-  }
-
-  Future<void> setMacBounded(String mac) async {
+  Future<void> setMacBounded(String mac, {String terminalName = ''}) async {
     if (isOffline) {
       throw const NetServiceOffline();
     }
@@ -131,17 +137,19 @@ abstract class BaseNetService with BaseService {
       throw const NetServiceException('Invalid MAC address');
     }
 
-    final allDevices = await getBoundedMac();
+    final allDevices = await getDeviceList();
     if (allDevices.any(
-      (e) => e.mac.toLowerCase() == normalizedMac.toLowerCase(),
+      (e) => e.mac.toUpperCase() == normalizedMac.toUpperCase(),
     )) {
       // Already bounded
       return;
     }
 
-    final retainMacs = allDevices.map((e) => e.mac.toLowerCase()).toList();
-    retainMacs.add(normalizedMac.toLowerCase());
-    await doRetainMacs(retainMacs);
+    await doBindMac(
+      macAddress: normalizedMac,
+      terminalName: terminalName,
+      isDumbTerminal: false,
+    );
   }
 
   Future<void> setMacUnbounded(String mac) async {
@@ -154,17 +162,25 @@ abstract class BaseNetService with BaseService {
       throw const NetServiceException('Invalid MAC address');
     }
 
-    final allDevices = await getBoundedMac();
-    final retainMacs = allDevices
-        .where((e) => e.mac.toLowerCase() != normalizedMac.toLowerCase())
-        .map((e) => e.mac.toLowerCase())
-        .toList();
-    await doRetainMacs(retainMacs);
+    await doUnbindMac(normalizedMac);
+  }
+
+  Future<void> renameMac(String mac, {required String terminalName}) async {
+    if (isOffline) {
+      throw const NetServiceOffline();
+    }
+
+    final normalizedMac = normalizeMac(mac);
+    if (normalizedMac == null) {
+      throw const NetServiceException('Invalid MAC address');
+    }
+
+    await doRenameMac(macAddress: normalizedMac, terminalName: terminalName);
   }
 
   @protected
   String? normalizeMac(String raw) {
-    final filtered = raw.replaceAll(RegExp(r'[^0-9a-fA-F]'), '').toLowerCase();
+    final filtered = raw.replaceAll(RegExp(r'[^0-9a-fA-F]'), '').toUpperCase();
     if (filtered.length != 12) {
       return null;
     }
