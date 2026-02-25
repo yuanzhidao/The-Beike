@@ -489,33 +489,20 @@ class UstbByytService extends BaseCoursesService {
   }
 
   @override
-  Future<List<CourseInfo>> getSelectedCourses(
-    TermInfo termInfo, [
-    String? tab,
-  ]) async {
+  Future<List<CourseInfo>> getAllSelectedCourses(TermInfo termInfo) async {
     if (status == ServiceStatus.offline) {
       throw const CourseServiceOffline();
     }
 
     Response response;
     try {
-      if (tab != null) {
-        final params = _CourseSelectionSharedParams(
-          termInfo: termInfo,
-          tabId: tab,
-        );
-        final formData = params.toFormData();
+      final params = _CourseSelectionSharedParams(
+        termInfo: termInfo,
+        tabId: 'yixuan',
+      );
+      final formData = params.toFormData();
 
-        response = await _dio.post('/Xsxk/queryKxrw', data: formData);
-      } else {
-        final params = _CourseSelectionSharedParams(
-          termInfo: termInfo,
-          tabId: 'yixuan',
-        );
-        final formData = params.toFormData();
-
-        response = await _dio.post('/Xsxk/queryYxkc', data: formData);
-      }
+      response = await _dio.post('/Xsxk/queryYxkc', data: formData);
     } catch (e) {
       throw CourseServiceNetworkError('Failed to get selected courses', e);
     }
@@ -525,40 +512,24 @@ class UstbByytService extends BaseCoursesService {
     try {
       final data = response.data;
 
-      // Handle different response formats
-      if (data is Map<String, dynamic> && data.containsKey('code')) {
-        // Response with code field
-        if (data['code'] != 200) {
-          throw CourseServiceBadRequest(
-            'API returned error: ${data['msg'] ?? 'No msg'}',
-            data['code'] as int?,
-          );
-        }
-        if (data['content'] == null) {
-          throw CourseServiceBadResponse('Response content is null');
-        }
-      }
-      // For responses without code field, proceed directly
+      final resultCodeRaw = data['jg'];
+      final resultCode = resultCodeRaw is num
+          ? resultCodeRaw.toInt()
+          : int.tryParse('$resultCodeRaw');
 
-      List<dynamic> coursesList;
-      if (tab != null) {
-        // /Xsxk/queryKxrw response
-        coursesList = data['yxkcList'] as List<dynamic>? ?? [];
-      } else {
-        // /Xsxk/queryYxkc response
-        if (data.containsKey('content')) {
-          coursesList = data['content'] as List<dynamic>? ?? [];
-        } else {
-          // Direct array response
-          coursesList = data['yxkcList'] as List<dynamic>? ?? [];
-        }
+      if (resultCode == null || resultCode < 0) {
+        final message = data['message'] ?? data['msg'] ?? 'Unknown error';
+        throw CourseServiceBadRequest('API returned error: $message');
       }
+
+      final coursesList = data['yxkcList'] as List<dynamic>? ?? [];
 
       return coursesList
           .map(
             (item) => CourseInfoUstbByytExtension.parse(
               item as Map<String, dynamic>,
-              fromTabId: tab ?? 'yixuan',
+              fromTabId: 'yixuan',
+              isSelected: true,
             ),
           )
           .toList();
@@ -573,7 +544,7 @@ class UstbByytService extends BaseCoursesService {
   }
 
   @override
-  Future<List<CourseInfo>> getSelectableCourses(
+  Future<List<CourseInfo>> getCoursesByTab(
     TermInfo termInfo,
     String tab,
   ) async {
@@ -602,22 +573,46 @@ class UstbByytService extends BaseCoursesService {
     try {
       final data = response.data;
 
-      final kxrwList = data['kxrwList'] as Map<String, dynamic>?;
+      final resultCodeRaw = data['jg'];
+      final resultCode = resultCodeRaw is num
+          ? resultCodeRaw.toInt()
+          : int.tryParse('$resultCodeRaw');
 
-      if (kxrwList == null) {
+      if (resultCode == null || resultCode < 0) {
+        final message = data['message'] ?? data['msg'] ?? 'Unknown error';
+        throw CourseServiceBadRequest('API returned error: $message');
+      }
+
+      final selectedList = data['yxkcList'] as List<dynamic>? ?? [];
+      final selectableData = data['kxrwList'] as Map<String, dynamic>?;
+
+      if (selectableData == null) {
         throw CourseServiceBadResponse('Response kxrwList is null');
       }
 
-      final coursesList = kxrwList['list'] as List<dynamic>? ?? [];
+      final selectableList = selectableData['list'] as List<dynamic>? ?? [];
 
-      return coursesList
-          .map(
-            (item) => CourseInfoUstbByytExtension.parse(
-              item as Map<String, dynamic>,
-              fromTabId: tab,
-            ),
-          )
-          .toList();
+      final courseMap = <String, CourseInfo>{};
+
+      for (final item in selectableList) {
+        final parsed = CourseInfoUstbByytExtension.parse(
+          item as Map<String, dynamic>,
+          fromTabId: tab,
+          isSelected: false,
+        );
+        courseMap[parsed.courseId] = parsed;
+      }
+
+      for (final item in selectedList) {
+        final parsed = CourseInfoUstbByytExtension.parse(
+          item as Map<String, dynamic>,
+          fromTabId: tab,
+          isSelected: true,
+        );
+        courseMap[parsed.courseId] = parsed;
+      }
+
+      return courseMap.values.toList();
     } on CourseServiceException {
       rethrow;
     } catch (e) {
@@ -759,6 +754,7 @@ class UstbByytService extends BaseCoursesService {
           final courseDetail = CourseInfoUstbByytExtension.parse(
             courseJson as Map<String, dynamic>,
             fromTabId: courseInfo.fromTabId,
+            isSelected: courseInfo.isSelected,
           );
 
           if (courseDetail.courseId == courseInfo.courseId &&

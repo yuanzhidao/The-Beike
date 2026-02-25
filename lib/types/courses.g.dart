@@ -374,6 +374,7 @@ CourseInfo _$CourseInfoFromJson(Map<String, dynamic> json) =>
         teachingLanguageAlt: json['teachingLanguageAlt'] as String?,
         credits: (json['credits'] as num).toDouble(),
         hours: (json['hours'] as num).toDouble(),
+        isSelected: json['isSelected'] as bool? ?? false,
         classDetail: json['classDetail'] == null
             ? null
             : CourseDetail.fromJson(
@@ -409,6 +410,7 @@ Map<String, dynamic> _$CourseInfoToJson(CourseInfo instance) =>
       'teachingLanguageAlt': instance.teachingLanguageAlt,
       'credits': instance.credits,
       'hours': instance.hours,
+      'isSelected': instance.isSelected,
       'classDetail': instance.classDetail,
       'fromTabId': instance.fromTabId,
     };

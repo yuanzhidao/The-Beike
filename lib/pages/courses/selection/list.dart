@@ -99,24 +99,18 @@ class _CourseListPageState extends State<CourseListPage> {
     });
 
     try {
-      // Get both selectable and selected courses
-      final [selectableCourses, selectedCourses] = await Future.wait([
-        _serviceProvider.coursesService.getSelectableCourses(
-          widget.termInfo,
-          _selectedTab!.tabId,
-        ),
-        _serviceProvider.coursesService.getSelectedCourses(
-          widget.termInfo,
-          _selectedTab!.tabId,
-        ),
-      ]);
+      // Get all courses in the tab (both selectable and already selected)
+      final courses = await _serviceProvider.coursesService.getCoursesByTab(
+        widget.termInfo,
+        _selectedTab!.tabId,
+      );
 
       // Ignore loaded actions if the tab has changed
       if (!mounted || _selectedTab?.tabId != currentTabId) return;
 
       // Remove duplicates
       final courseMap = <String, CourseInfo>{};
-      for (final course in [...selectableCourses, ...selectedCourses]) {
+      for (final course in courses) {
         courseMap[course.courseId] = course;
       }
       final uniqueCourses = courseMap.values.toList();
@@ -160,14 +154,11 @@ class _CourseListPageState extends State<CourseListPage> {
           : 100.0;
 
       // Separate courses into selected and unselected for display order
-      final selectedIds = selectedCourses
-          .map((course) => course.courseId)
-          .toSet();
       final selectedInTab = uniqueCourses
-          .where((course) => selectedIds.contains(course.courseId))
+          .where((course) => course.isSelected)
           .toList();
       final unselectedInTab = uniqueCourses
-          .where((course) => !selectedIds.contains(course.courseId))
+          .where((course) => !course.isSelected)
           .toList();
 
       // Combine with selected courses first
@@ -176,7 +167,7 @@ class _CourseListPageState extends State<CourseListPage> {
       setState(() {
         _courses = combinedCourses;
         _filteredCourses = combinedCourses;
-        _selectedCourseIds = selectedIds.toList();
+        _selectedCourseIds = selectedInTab.map((c) => c.courseId).toList();
         _availableCourseTypes = courseTypes;
         _availableCourseCategories = courseCategories;
         _minAvailableCredits = minCredits;
@@ -219,7 +210,7 @@ class _CourseListPageState extends State<CourseListPage> {
 
     try {
       final allSelectedCourses = await _serviceProvider.coursesService
-          .getSelectedCourses(widget.termInfo);
+          .getAllSelectedCourses(widget.termInfo);
 
       _selectedCourseIds = allSelectedCourses
           .map((course) => course.courseId)
