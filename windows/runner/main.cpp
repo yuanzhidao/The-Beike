@@ -5,6 +5,25 @@
 #include "flutter_window.h"
 #include "utils.h"
 
+std::wstring GetLocalizedAppTitle() {
+  const LANGID lang_id = GetUserDefaultUILanguage();
+  const WORD primary_lang = PRIMARYLANGID(lang_id);
+  const WORD sub_lang = SUBLANGID(lang_id);
+
+  if (primary_lang == LANG_CHINESE) {
+    switch (sub_lang) {
+      case SUBLANG_CHINESE_TRADITIONAL:
+      case SUBLANG_CHINESE_HONGKONG:
+      case SUBLANG_CHINESE_MACAU:
+        return L"\u5927\u8c9d\u6bbc";
+      default:
+        return L"\u5927\u8d1d\u58f3";
+    }
+  }
+
+  return L"The Beike";
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // Attach to console when present (e.g., 'flutter run') or create a
@@ -27,7 +46,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"the_beike", origin, size)) {
+  if (!window.Create(GetLocalizedAppTitle().c_str(), origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

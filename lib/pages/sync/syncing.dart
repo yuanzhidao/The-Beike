@@ -286,22 +286,13 @@ class _SyncingCardState extends State<SyncingCard> {
     });
 
     try {
-      final configs = widget.serviceProvider.storeService.getAllConfigs();
-      final newConfigs = await widget.serviceProvider.syncService.update(
-        deviceId: widget.syncData.deviceId!,
-        groupId: widget.syncData.groupId!,
-        config: configs,
-      );
+      await widget.serviceProvider.syncAndApplyConfig();
 
       // Sync status is already recorded by the service
       if (mounted) {
         setState(() {
           // Trigger rebuild to reflect the new sync status from service
         });
-      }
-
-      if (newConfigs != null) {
-        widget.serviceProvider.storeService.updateConfigs(newConfigs);
       }
     } catch (e) {
       // Sync status failure is already recorded by the service

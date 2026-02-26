@@ -59,7 +59,7 @@ class _SyncPoweredState extends State<SyncPowered>
     try {
       widget.onSyncStart?.call();
 
-      await _serviceProvider.maybeUpdateConfigAndApplyChanges();
+      await _serviceProvider.maybeSyncAndApplyConfig();
     } catch (e) {
       // Silently ignore sync errors
     } finally {

@@ -430,7 +430,11 @@ extension CourseDetailUstbByytExtension on CourseDetail {
 }
 
 extension CourseInfoUstbByytExtension on CourseInfo {
-  static CourseInfo parse(Map<String, dynamic> data, {String? fromTabId}) {
+  static CourseInfo parse(
+    Map<String, dynamic> data, {
+    String? fromTabId,
+    bool isSelected = false,
+  }) {
     // Check if id is present and valid
     CourseDetail? classDetail;
     if (data['id'] != null && data['id'].toString().isNotEmpty) {
@@ -461,6 +465,7 @@ extension CourseInfoUstbByytExtension on CourseInfo {
           0.0,
       classDetail: classDetail,
       fromTabId: fromTabId,
+      isSelected: isSelected,
     );
   }
 }

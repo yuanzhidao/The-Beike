@@ -627,6 +627,7 @@ class CourseInfo extends BaseDataClass {
   final String? teachingLanguageAlt; // 授课语言英文
   final double credits; // 学分
   final double hours; // 学时
+  final bool isSelected; // 是否已选
   final CourseDetail? classDetail; // 讲台详情
   final String? fromTabId; // 来源标签页ID
 
@@ -648,9 +649,33 @@ class CourseInfo extends BaseDataClass {
     this.teachingLanguageAlt,
     required this.credits,
     required this.hours,
+    this.isSelected = false,
     this.classDetail,
     this.fromTabId,
   });
+
+  String get uniqueKey {
+    return '$courseId#${classDetail?.classId ?? ''}';
+  }
+
+  String get combinedName {
+    final extra = classDetail?.extraName;
+    if (extra == null || extra.isEmpty) {
+      return courseName;
+    }
+    return '$courseName $extra';
+  }
+
+  String get combinedNameAlt {
+    final extra = classDetail?.extraNameAlt;
+    if (extra == null || extra.isEmpty) {
+      return courseNameAlt ?? '';
+    }
+    if (courseNameAlt == null || courseNameAlt!.isEmpty) {
+      return extra;
+    }
+    return '$courseNameAlt $extra';
+  }
 
   @override
   Map<String, dynamic> getEssentials() {

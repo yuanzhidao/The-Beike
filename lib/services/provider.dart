@@ -192,7 +192,7 @@ class ServiceProvider extends ChangeNotifier {
 
   /// Maybe syncs config if last sync was more than 10 seconds ago.
   /// Silently ignores any sync errors.
-  Future<void> maybeUpdateConfigAndApplyChanges() async {
+  Future<void> maybeSyncAndApplyConfig() async {
     try {
       final syncData = _storeService.getPref<SyncDeviceData>(
         'sync_device',
@@ -215,23 +215,57 @@ class ServiceProvider extends ChangeNotifier {
       }
 
       // Perform the sync
-      final configs = _storeService.getAllConfigs();
-      final newConfigs = await _syncService.update(
-        deviceId: syncData.deviceId!,
-        groupId: syncData.groupId!,
-        config: configs,
-      );
-
-      // Apply new configs if received
-      if (newConfigs != null) {
-        _storeService.updateConfigs(newConfigs);
-      }
+      await syncAndApplyConfig();
     } catch (e) {
       // Silently ignore sync errors
       if (kDebugMode) {
         print('maybeUpdateConfigAndApplyChanges failed: $e');
       }
     }
+  }
+
+  /// Centralized sync hook so any caller gets consistent handling and UI updates.
+  Future<Map<String, dynamic>?> syncAndApplyConfig() async {
+    final syncData = _storeService.getPref<SyncDeviceData>(
+      'sync_device',
+      SyncDeviceData.fromJson,
+    );
+    if (syncData?.deviceId == null || syncData?.groupId == null) {
+      throw Exception('Missing sync device/group id');
+    }
+
+    final payload = _storeService.getAllConfigs();
+    final newConfigs = await _syncService.update(
+      deviceId: syncData!.deviceId!,
+      groupId: syncData.groupId!,
+      config: payload,
+    );
+    await _handleSyncedConfigs(newConfigs);
+    return newConfigs;
+  }
+
+  Future<void> _handleSyncedConfigs(Map<String, dynamic>? newConfigs) async {
+    if (newConfigs == null) return;
+    _storeService.updateConfigs(newConfigs);
+
+    try {
+      // If a fresh course account cookie is synced while not online, attempt auto-login.
+      if (!_coursesService.isOnline) {
+        final syncedLogin = _storeService.getConfig<UserLoginIntegratedData>(
+          "course_account_data",
+          UserLoginIntegratedData.fromJson,
+        );
+        if (syncedLogin?.cookie != null) {
+          await _coursesService.login(syncedLogin!.cookie!);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('handleSyncedConfigs failed: $e');
+      }
+    }
+
+    notifyListeners();
   }
 
   //

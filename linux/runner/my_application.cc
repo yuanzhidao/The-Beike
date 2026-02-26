@@ -7,6 +7,25 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+static const char* get_localized_app_title() {
+  const char* const* languages = g_get_language_names();
+  for (const char* const* lang = languages; *lang != nullptr; ++lang) {
+    if (g_str_has_prefix(*lang, "zh_TW") ||
+        g_str_has_prefix(*lang, "zh_HK") ||
+        g_str_has_prefix(*lang, "zh_MO") ||
+        g_str_has_prefix(*lang, "zh_Hant")) {
+      return u8"\u5927\u8c9d\u6bbc";
+    }
+    if (g_str_has_prefix(*lang, "zh_CN") ||
+        g_str_has_prefix(*lang, "zh_SG") ||
+        g_str_has_prefix(*lang, "zh_Hans")) {
+      return u8"\u5927\u8d1d\u58f3";
+    }
+  }
+
+  return "The Beike";
+}
+
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
@@ -46,11 +65,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "the_beike");
+    gtk_header_bar_set_title(header_bar, get_localized_app_title());
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "the_beike");
+    gtk_window_set_title(window, get_localized_app_title());
   }
 
   gtk_window_set_default_size(window, 1280, 720);

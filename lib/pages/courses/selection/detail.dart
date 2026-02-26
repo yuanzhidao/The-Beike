@@ -10,7 +10,8 @@ class CourseDetailCard extends StatefulWidget {
   final VoidCallback onToggle;
   final VoidCallback onSelectionChanged;
   final VoidCallback onRefreshRequired;
-  final List<String> selectedCourseIds;
+  final CooldownHandler cooldownHandler;
+  final Set<String> selectedCourseKeys;
 
   const CourseDetailCard({
     super.key,
@@ -20,7 +21,8 @@ class CourseDetailCard extends StatefulWidget {
     required this.onToggle,
     required this.onSelectionChanged,
     required this.onRefreshRequired,
-    required this.selectedCourseIds,
+    required this.cooldownHandler,
+    required this.selectedCourseKeys,
   });
 
   @override
@@ -173,10 +175,24 @@ class _CourseDetailCardState extends State<CourseDetailCard>
   }
 
   Future<void> _loadCourseDetails() async {
+    if (!mounted) return;
+    widget.cooldownHandler.start(isMounted: () => mounted);
+
     setState(() {
       _isLoadingDetails = true;
       _detailsErrorMessage = null;
     });
+
+    if (widget.course.classDetail != null) {
+      setState(() {
+        _courseDetails = [widget.course];
+        _isLoadingDetails = false;
+      });
+      if (mounted) {
+        widget.cooldownHandler.finish(isMounted: () => mounted);
+      }
+      return;
+    }
 
     try {
       final details = await _serviceProvider.coursesService.getCourseDetail(
@@ -196,6 +212,10 @@ class _CourseDetailCardState extends State<CourseDetailCard>
         _detailsErrorMessage = e.toString();
         _isLoadingDetails = false;
       });
+    } finally {
+      if (mounted) {
+        widget.cooldownHandler.finish(isMounted: () => mounted);
+      }
     }
   }
 
@@ -300,16 +320,16 @@ class _CourseDetailCardState extends State<CourseDetailCard>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.course.courseName,
+                    widget.course.combinedName,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
-                  if (widget.course.courseNameAlt?.isNotEmpty == true) ...[
+                  if (widget.course.combinedNameAlt.isNotEmpty == true) ...[
                     const SizedBox(height: 4),
                     Text(
-                      widget.course.courseNameAlt!,
+                      widget.course.combinedNameAlt,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(
                           context,
@@ -369,8 +389,8 @@ class _CourseDetailCardState extends State<CourseDetailCard>
 
   Widget _buildCourseDetailsList() {
     // Check if this course is already selected
-    final isAlreadySelected = widget.selectedCourseIds.contains(
-      widget.course.courseId,
+    final isAlreadySelected = widget.selectedCourseKeys.contains(
+      widget.course.uniqueKey,
     );
 
     if (isAlreadySelected) {

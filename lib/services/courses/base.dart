@@ -50,9 +50,9 @@ abstract class BaseCoursesService extends ChangeNotifier with BaseService {
 
   DateTime? getLastHeartbeatTime() => _lastHeartbeatTime;
 
-  Future<List<CourseInfo>> getSelectedCourses(TermInfo termInfo, [String? tab]);
+  Future<List<CourseInfo>> getAllSelectedCourses(TermInfo termInfo);
 
-  Future<List<CourseInfo>> getSelectableCourses(TermInfo termInfo, String tab);
+  Future<List<CourseInfo>> getCoursesByTab(TermInfo termInfo, String tab);
 
   Future<List<CourseTab>> getCourseTabs(TermInfo termInfo);
 

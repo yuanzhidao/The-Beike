@@ -17,7 +17,8 @@ class CourseListPage extends StatefulWidget {
   State<CourseListPage> createState() => _CourseListPageState();
 }
 
-class _CourseListPageState extends State<CourseListPage> {
+class _CourseListPageState extends State<CourseListPage>
+    with SingleTickerProviderStateMixin {
   final ServiceProvider _serviceProvider = ServiceProvider.instance;
   final TextEditingController _searchController = TextEditingController();
 
@@ -27,12 +28,14 @@ class _CourseListPageState extends State<CourseListPage> {
   List<CourseInfo> _courses = [];
   List<CourseInfo> _filteredCourses = [];
 
-  List<String> _selectedCourseIds = [];
-  String? _expandedCourseId; // Current expanded course ID
+  Set<String> _selectedCourseKeys = {};
+  String? _expandedCourseKey; // Current expanded course key
 
   bool _isLoading = false;
   bool _isLoadingCourses = false;
   String? _errorMessage;
+
+  late final CooldownHandler _cooldownHandler;
 
   String _currentSearchQuery = '';
   Filterers _filterers = Filterers();
@@ -46,11 +49,15 @@ class _CourseListPageState extends State<CourseListPage> {
   @override
   void initState() {
     super.initState();
+    _cooldownHandler = CooldownHandler(vsync: this);
+    _cooldownHandler.controller.addListener(_handleCooldownTick);
     _loadCourseTabs();
   }
 
   @override
   void dispose() {
+    _cooldownHandler.controller.removeListener(_handleCooldownTick);
+    _cooldownHandler.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -95,29 +102,24 @@ class _CourseListPageState extends State<CourseListPage> {
     setState(() {
       _isLoadingCourses = true;
       _errorMessage = null;
-      _expandedCourseId = null;
+      _expandedCourseKey = null;
     });
+    _startTabLoadBar();
 
     try {
-      // Get both selectable and selected courses
-      final [selectableCourses, selectedCourses] = await Future.wait([
-        _serviceProvider.coursesService.getSelectableCourses(
-          widget.termInfo,
-          _selectedTab!.tabId,
-        ),
-        _serviceProvider.coursesService.getSelectedCourses(
-          widget.termInfo,
-          _selectedTab!.tabId,
-        ),
-      ]);
+      // Get all courses in the tab (both selectable and already selected)
+      final courses = await _serviceProvider.coursesService.getCoursesByTab(
+        widget.termInfo,
+        _selectedTab!.tabId,
+      );
 
       // Ignore loaded actions if the tab has changed
       if (!mounted || _selectedTab?.tabId != currentTabId) return;
 
       // Remove duplicates
       final courseMap = <String, CourseInfo>{};
-      for (final course in [...selectableCourses, ...selectedCourses]) {
-        courseMap[course.courseId] = course;
+      for (final course in courses) {
+        courseMap[course.uniqueKey] = course;
       }
       final uniqueCourses = courseMap.values.toList();
 
@@ -160,14 +162,11 @@ class _CourseListPageState extends State<CourseListPage> {
           : 100.0;
 
       // Separate courses into selected and unselected for display order
-      final selectedIds = selectedCourses
-          .map((course) => course.courseId)
-          .toSet();
       final selectedInTab = uniqueCourses
-          .where((course) => selectedIds.contains(course.courseId))
+          .where((course) => course.isSelected)
           .toList();
       final unselectedInTab = uniqueCourses
-          .where((course) => !selectedIds.contains(course.courseId))
+          .where((course) => !course.isSelected)
           .toList();
 
       // Combine with selected courses first
@@ -176,7 +175,7 @@ class _CourseListPageState extends State<CourseListPage> {
       setState(() {
         _courses = combinedCourses;
         _filteredCourses = combinedCourses;
-        _selectedCourseIds = selectedIds.toList();
+        _selectedCourseKeys = selectedInTab.map((c) => c.uniqueKey).toSet();
         _availableCourseTypes = courseTypes;
         _availableCourseCategories = courseCategories;
         _minAvailableCredits = minCredits;
@@ -199,6 +198,7 @@ class _CourseListPageState extends State<CourseListPage> {
           _filteredCourses = _searchCourses(_courses, _currentSearchQuery);
         }
       });
+      _finishTabLoadBar();
     } catch (e) {
       if (!mounted || _selectedTab?.tabId != currentTabId) return;
 
@@ -206,7 +206,25 @@ class _CourseListPageState extends State<CourseListPage> {
         _errorMessage = e.toString();
         _isLoadingCourses = false;
       });
+      _finishTabLoadBar();
     }
+  }
+
+  bool get _isTabSwitchDisabled {
+    return _isLoadingCourses || _cooldownHandler.isCoolingDown;
+  }
+
+  void _startTabLoadBar() {
+    _cooldownHandler.start(isMounted: () => mounted);
+  }
+
+  void _finishTabLoadBar() {
+    _cooldownHandler.finish(isMounted: () => mounted);
+  }
+
+  void _handleCooldownTick() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _syncSelectedCoursesAfterSubmit() async {
@@ -216,14 +234,15 @@ class _CourseListPageState extends State<CourseListPage> {
       _isLoading = true;
       _errorMessage = null;
     });
+    _startTabLoadBar();
 
     try {
       final allSelectedCourses = await _serviceProvider.coursesService
-          .getSelectedCourses(widget.termInfo);
+          .getAllSelectedCourses(widget.termInfo);
 
-      _selectedCourseIds = allSelectedCourses
-          .map((course) => course.courseId)
-          .toList();
+      _selectedCourseKeys = allSelectedCourses
+          .map((course) => course.uniqueKey)
+          .toSet();
 
       final selectionState = _serviceProvider.coursesService
           .getCourseSelectionState();
@@ -231,7 +250,7 @@ class _CourseListPageState extends State<CourseListPage> {
       final remainingWantedCourses = selectionState.wantedCourses.where((
         course,
       ) {
-        return !_selectedCourseIds.contains(course.courseId);
+        return !_selectedCourseKeys.contains(course.uniqueKey);
       }).toList();
 
       final updatedState = CourseSelectionState(
@@ -251,6 +270,10 @@ class _CourseListPageState extends State<CourseListPage> {
           _errorMessage = e.toString();
           _isLoading = false;
         });
+      }
+    } finally {
+      if (mounted) {
+        _finishTabLoadBar();
       }
     }
   }
@@ -356,36 +379,37 @@ class _CourseListPageState extends State<CourseListPage> {
       final courseIdMatch = course.courseId.toLowerCase().contains(queryLower);
 
       if (courseIdMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
 
     // 2. 课程名称模糊匹配
     for (final course in courses) {
-      final courseNameMatch = course.courseName.toLowerCase().contains(
+      final courseNameMatch = course.combinedName.toLowerCase().contains(
         queryLower,
       );
 
       if (courseNameMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
 
     // 3. 课程alt名称模糊匹配
     for (final course in courses) {
-      final courseNameAltMatch =
-          course.courseNameAlt?.toLowerCase().contains(queryLower) ?? false;
+      final courseNameAltMatch = course.combinedNameAlt.toLowerCase().contains(
+        queryLower,
+      );
 
       if (courseNameAltMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
@@ -526,7 +550,6 @@ class _CourseListPageState extends State<CourseListPage> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             boxShadow: [
@@ -537,46 +560,7 @@ class _CourseListPageState extends State<CourseListPage> {
               ),
             ],
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _courseTabs.map((tab) {
-                final isSelected = _selectedTab?.tabId == tab.tabId;
-
-                return Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    selected: isSelected,
-                    label: Text(tab.tabName),
-                    onSelected: (selected) {
-                      if (selected &&
-                          mounted &&
-                          _selectedTab?.tabId != tab.tabId) {
-                        setState(() {
-                          _selectedTab = tab;
-                          _courses = [];
-                          _filteredCourses = [];
-                          _selectedCourseIds = [];
-                          _availableCourseTypes = [];
-                          _availableCourseCategories = [];
-                          _filterers.clear();
-                          _currentSearchQuery = '';
-                          _searchController.clear();
-                          _expandedCourseId = null;
-                          _errorMessage = null;
-                        });
-                        _loadCourses();
-                      }
-                    },
-                    selectedColor: Theme.of(
-                      context,
-                    ).primaryColor.withValues(alpha: 0.2),
-                    checkmarkColor: Theme.of(context).primaryColor,
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
+          child: _buildTabBar(),
         ),
 
         const Divider(height: 1),
@@ -639,6 +623,104 @@ class _CourseListPageState extends State<CourseListPage> {
               : const Center(child: Text('请选择标签页')),
         ),
       ],
+    );
+  }
+
+  Widget _buildTabBar() {
+    return AnimatedBuilder(
+      animation: _cooldownHandler.controller,
+      builder: (context, child) {
+        final isTabSwitchDisabled = _isTabSwitchDisabled;
+
+        return SizedBox(
+          width: double.infinity,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: _cooldownHandler.animation.value,
+                    child: Container(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _courseTabs.map((tab) {
+                      final isSelected = _selectedTab?.tabId == tab.tabId;
+
+                      return Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          selected: isSelected,
+                          label: Text(
+                            tab.tabName,
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  color: isSelected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
+                          ),
+                          side: BorderSide(
+                            color: isSelected
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.4)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.outline.withValues(alpha: 0.4),
+                            width: 1,
+                          ),
+                          onSelected: isTabSwitchDisabled
+                              ? null
+                              : (selected) {
+                                  if (selected &&
+                                      mounted &&
+                                      _selectedTab?.tabId != tab.tabId) {
+                                    setState(() {
+                                      _selectedTab = tab;
+                                      _courses = [];
+                                      _filteredCourses = [];
+                                      _selectedCourseKeys = {};
+                                      _availableCourseTypes = [];
+                                      _availableCourseCategories = [];
+                                      _filterers.clear();
+                                      _currentSearchQuery = '';
+                                      _searchController.clear();
+                                      _expandedCourseKey = null;
+                                      _errorMessage = null;
+                                    });
+                                    _loadCourses();
+                                  }
+                                },
+                          selectedColor: Theme.of(
+                            context,
+                          ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                          checkmarkColor: Theme.of(context).colorScheme.primary,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -757,18 +839,19 @@ class _CourseListPageState extends State<CourseListPage> {
                     itemCount: _filteredCourses.length,
                     itemBuilder: (context, index) {
                       final course = _filteredCourses[index];
-                      final isExpanded = _expandedCourseId == course.courseId;
+                      final isExpanded = _expandedCourseKey == course.uniqueKey;
 
                       return _CourseTableRow(
                         course: course,
                         termInfo: widget.termInfo,
                         isExpanded: isExpanded,
                         columnWidths: columnWidths,
+                        isInteractionDisabled: _isTabSwitchDisabled,
                         onToggle: () {
                           setState(() {
-                            _expandedCourseId = isExpanded
+                            _expandedCourseKey = isExpanded
                                 ? null
-                                : course.courseId;
+                                : course.uniqueKey;
                           });
                         },
                         onSelectionChanged: () {
@@ -776,7 +859,8 @@ class _CourseListPageState extends State<CourseListPage> {
                           setState(() {});
                         },
                         onRefreshRequired: _loadCourses,
-                        selectedCourseIds: _selectedCourseIds,
+                        cooldownHandler: _cooldownHandler,
+                        selectedCourseKeys: _selectedCourseKeys,
                       );
                     },
                   ),
@@ -965,20 +1049,24 @@ class _CourseTableRow extends StatefulWidget {
   final TermInfo termInfo;
   final bool isExpanded;
   final List<double> columnWidths;
+  final bool isInteractionDisabled;
   final VoidCallback onToggle;
   final VoidCallback onSelectionChanged;
   final VoidCallback onRefreshRequired;
-  final List<String> selectedCourseIds;
+  final CooldownHandler cooldownHandler;
+  final Set<String> selectedCourseKeys;
 
   const _CourseTableRow({
     required this.course,
     required this.termInfo,
     required this.isExpanded,
     required this.columnWidths,
+    required this.isInteractionDisabled,
     required this.onToggle,
     required this.onSelectionChanged,
     required this.onRefreshRequired,
-    required this.selectedCourseIds,
+    required this.cooldownHandler,
+    required this.selectedCourseKeys,
   });
 
   @override
@@ -994,16 +1082,30 @@ class _CourseTableRowState extends State<_CourseTableRow>
     final serviceProvider = ServiceProvider.instance;
     final selectionState = serviceProvider.coursesService
         .getCourseSelectionState();
+    if (widget.course.classDetail != null) {
+      return selectionState.wantedCourses
+          .where((course) => course.uniqueKey == widget.course.uniqueKey)
+          .length;
+    }
+    final courseKeyPrefix = '${widget.course.courseId}#';
     return selectionState.wantedCourses
-        .where((course) => course.courseId == widget.course.courseId)
+        .where((course) => course.uniqueKey.startsWith(courseKeyPrefix))
         .length;
   }
 
   Widget _buildSelectionStatusIndicator() {
     final selectedCount = _getSelectedCountForCourse();
-    final isAlreadySelected = widget.selectedCourseIds.contains(
-      widget.course.courseId,
-    );
+    final bool isAlreadySelected;
+    if (widget.course.classDetail != null) {
+      isAlreadySelected = widget.selectedCourseKeys.contains(
+        widget.course.uniqueKey,
+      );
+    } else {
+      final courseKeyPrefix = '${widget.course.courseId}#';
+      isAlreadySelected = widget.selectedCourseKeys.any(
+        (key) => key.startsWith(courseKeyPrefix),
+      );
+    }
 
     if (selectedCount == 0 && !isAlreadySelected) {
       return const SizedBox.shrink();
@@ -1080,10 +1182,15 @@ class _CourseTableRowState extends State<_CourseTableRow>
 
   @override
   Widget build(BuildContext context) {
+    final isToggleDisabled =
+        widget.isInteractionDisabled &&
+        !widget.isExpanded &&
+        widget.course.classDetail == null;
+
     return Column(
       children: [
         InkWell(
-          onTap: widget.onToggle,
+          onTap: isToggleDisabled ? null : widget.onToggle,
           splashColor: Theme.of(
             context,
           ).colorScheme.primary.withValues(alpha: 0.1),
@@ -1156,8 +1263,8 @@ class _CourseTableRowState extends State<_CourseTableRow>
                   widget.columnWidths[1],
                 ),
                 _buildNameCell(
-                  widget.course.courseName,
-                  widget.course.courseNameAlt,
+                  widget.course.combinedName,
+                  widget.course.combinedNameAlt,
                   widget.columnWidths[2],
                 ),
                 _buildDataCell(
@@ -1207,7 +1314,8 @@ class _CourseTableRowState extends State<_CourseTableRow>
           onToggle: widget.onToggle,
           onSelectionChanged: widget.onSelectionChanged,
           onRefreshRequired: widget.onRefreshRequired,
-          selectedCourseIds: widget.selectedCourseIds,
+          cooldownHandler: widget.cooldownHandler,
+          selectedCourseKeys: widget.selectedCourseKeys,
         ),
       ],
     );
