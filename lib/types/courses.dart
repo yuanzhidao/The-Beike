@@ -658,6 +658,25 @@ class CourseInfo extends BaseDataClass {
     return '$courseId#${classDetail?.classId ?? ''}';
   }
 
+  String get combinedName {
+    final extra = classDetail?.extraName;
+    if (extra == null || extra.isEmpty) {
+      return courseName;
+    }
+    return '$courseName $extra';
+  }
+
+  String get combinedNameAlt {
+    final extra = classDetail?.extraNameAlt;
+    if (extra == null || extra.isEmpty) {
+      return courseNameAlt ?? '';
+    }
+    if (courseNameAlt == null || courseNameAlt!.isEmpty) {
+      return extra;
+    }
+    return '$courseNameAlt $extra';
+  }
+
   @override
   Map<String, dynamic> getEssentials() {
     return {'courseId': courseId, 'classDetail': classDetail?.classId};

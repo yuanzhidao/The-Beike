@@ -183,6 +183,17 @@ class _CourseDetailCardState extends State<CourseDetailCard>
       _detailsErrorMessage = null;
     });
 
+    if (widget.course.classDetail != null) {
+      setState(() {
+        _courseDetails = [widget.course];
+        _isLoadingDetails = false;
+      });
+      if (mounted) {
+        widget.cooldownHandler.finish(isMounted: () => mounted);
+      }
+      return;
+    }
+
     try {
       final details = await _serviceProvider.coursesService.getCourseDetail(
         widget.termInfo,
@@ -309,16 +320,16 @@ class _CourseDetailCardState extends State<CourseDetailCard>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.course.courseName,
+                    widget.course.combinedName,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
-                  if (widget.course.courseNameAlt?.isNotEmpty == true) ...[
+                  if (widget.course.combinedNameAlt.isNotEmpty == true) ...[
                     const SizedBox(height: 4),
                     Text(
-                      widget.course.courseNameAlt!,
+                      widget.course.combinedNameAlt,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(
                           context,

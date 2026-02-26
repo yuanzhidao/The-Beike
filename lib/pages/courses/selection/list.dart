@@ -388,7 +388,7 @@ class _CourseListPageState extends State<CourseListPage>
 
     // 2. 课程名称模糊匹配
     for (final course in courses) {
-      final courseNameMatch = course.courseName.toLowerCase().contains(
+      final courseNameMatch = course.combinedName.toLowerCase().contains(
         queryLower,
       );
 
@@ -402,8 +402,9 @@ class _CourseListPageState extends State<CourseListPage>
 
     // 3. 课程alt名称模糊匹配
     for (final course in courses) {
-      final courseNameAltMatch =
-          course.courseNameAlt?.toLowerCase().contains(queryLower) ?? false;
+      final courseNameAltMatch = course.combinedNameAlt.toLowerCase().contains(
+        queryLower,
+      );
 
       if (courseNameAltMatch) {
         if (!addedIds.contains(course.uniqueKey)) {
@@ -639,12 +640,12 @@ class _CourseListPageState extends State<CourseListPage>
               Positioned.fill(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: _cooldownHandler.animation.value,
-                      child: Container(
-                        color: Theme.of(
-                          context,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: _cooldownHandler.animation.value,
+                    child: Container(
+                      color: Theme.of(
+                        context,
                       ).colorScheme.surfaceContainerHighest,
                     ),
                   ),
@@ -838,8 +839,7 @@ class _CourseListPageState extends State<CourseListPage>
                     itemCount: _filteredCourses.length,
                     itemBuilder: (context, index) {
                       final course = _filteredCourses[index];
-                      final isExpanded =
-                          _expandedCourseKey == course.uniqueKey;
+                      final isExpanded = _expandedCourseKey == course.uniqueKey;
 
                       return _CourseTableRow(
                         course: course,
@@ -1082,16 +1082,18 @@ class _CourseTableRowState extends State<_CourseTableRow>
     final serviceProvider = ServiceProvider.instance;
     final selectionState = serviceProvider.coursesService
         .getCourseSelectionState();
+    final courseKeyPrefix = '${widget.course.courseId}#';
     return selectionState.wantedCourses
-        .where((course) => course.courseId == widget.course.courseId)
+        .where((course) => course.uniqueKey.startsWith(courseKeyPrefix))
         .length;
   }
 
   Widget _buildSelectionStatusIndicator() {
     final selectedCount = _getSelectedCountForCourse();
-    final isAlreadySelected = widget.selectedCourseKeys.contains(
-      widget.course.uniqueKey,
-    );
+    final courseKeyPrefix = '${widget.course.courseId}#';
+    final isAlreadySelected =
+        widget.selectedCourseKeys.contains(widget.course.uniqueKey) ||
+        widget.selectedCourseKeys.any((key) => key.startsWith(courseKeyPrefix));
 
     if (selectedCount == 0 && !isAlreadySelected) {
       return const SizedBox.shrink();
@@ -1244,8 +1246,8 @@ class _CourseTableRowState extends State<_CourseTableRow>
                   widget.columnWidths[1],
                 ),
                 _buildNameCell(
-                  widget.course.courseName,
-                  widget.course.courseNameAlt,
+                  widget.course.combinedName,
+                  widget.course.combinedNameAlt,
                   widget.columnWidths[2],
                 ),
                 _buildDataCell(
