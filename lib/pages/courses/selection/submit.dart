@@ -279,9 +279,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
               children: [
                 buildStepIndicator(context, 3),
                 const SizedBox(height: 24),
-                _buildAutoRetrySwitch(),
-                const SizedBox(height: 16),
-                _buildConcurrencySelector(),
+                _buildRetryAndConcurrencyCard(),
                 const SizedBox(height: 16),
                 _buildTasksList(),
                 const SizedBox(height: 16),
@@ -297,56 +295,8 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
     );
   }
 
-  Widget _buildAutoRetrySwitch() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.refresh,
-            color: Theme.of(context).colorScheme.primary,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '自动重试',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                ),
-                Text(
-                  '选课失败时自动重试，适用于抢课和退课候补',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: _autoRetry,
-            onChanged: _isSubmitting
-                ? null
-                : (value) {
-                    setState(() {
-                      _autoRetry = value;
-                    });
-                  },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildConcurrencySelector() {
-    final maxConcurrency = kDebugMode ? 50 : 5;
+  Widget _buildRetryAndConcurrencyCard() {
+    final maxConcurrency = kDebugMode ? 20 : 4;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -357,47 +307,95 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
           color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(
-            Icons.speed,
-            color: Theme.of(context).colorScheme.primary,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '协程数量',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          Row(
+            children: [
+              Icon(
+                Icons.refresh,
+                color: Theme.of(context).colorScheme.primary,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '自动重试',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      '选课失败时自动重试，抢课和候补时务必开启',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ),
-                Text(
-                  '每个课程的并发请求数，适用于抢课',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
+              ),
+              Switch(
+                value: _autoRetry,
+                onChanged: _isSubmitting
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _autoRetry = value;
+                        });
+                      },
+              ),
+            ],
           ),
-          DropdownButton<int>(
-            value: _concurrencyCount,
-            items: List.generate(maxConcurrency, (index) => index + 1)
-                .map(
-                  (count) =>
-                      DropdownMenuItem(value: count, child: Text('$count')),
-                )
-                .toList(),
-            onChanged: _isSubmitting
-                ? null
-                : (value) {
-                    if (value != null) {
-                      setState(() {
-                        _concurrencyCount = value;
-                        _initializeTasks(); // Re-init
-                      });
-                    }
-                  },
+          const SizedBox(height: 12),
+          Divider(color: Theme.of(context).dividerColor.withValues(alpha: 0.2)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.alt_route,
+                color: Theme.of(context).colorScheme.primary,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '协程数量',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      '每个课程的并发请求数，适用于抢课',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              DropdownButton<int>(
+                value: _concurrencyCount,
+                items: List.generate(maxConcurrency, (index) => index + 1)
+                    .map(
+                      (count) =>
+                          DropdownMenuItem(value: count, child: Text('$count')),
+                    )
+                    .toList(),
+                onChanged: _isSubmitting
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() {
+                            _concurrencyCount = value;
+                            _initializeTasks(); // Re-init
+                          });
+                        }
+                      },
+              ),
+            ],
           ),
         ],
       ),
@@ -689,8 +687,8 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
                 Text(
                   _isSubmitting
                       ? _stopRequested
-                          ? '停止中...'
-                          : '停止提交'
+                            ? '正在停止'
+                            : '停止提交'
                       : _tasks.isEmpty
                       ? '请先选择课程'
                       : '提交选课申请',
@@ -809,7 +807,6 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
         task.status = CourseSelectionStatus.sending;
         task.startTime = DateTime.now();
         task.retryCount = retry;
-        task.errorMessage = null;
       });
 
       try {
@@ -945,10 +942,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
           children: [
             Text('成功：$successCourseCount / $totalCourseCount 门课程'),
             const SizedBox(height: 8),
-            const Text(
-              '已停止后续提交。',
-              style: TextStyle(color: Colors.orange),
-            ),
+            const Text('已停止后续提交。', style: TextStyle(color: Colors.orange)),
           ],
         ),
         actions: [

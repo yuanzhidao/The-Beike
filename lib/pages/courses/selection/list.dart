@@ -1082,6 +1082,11 @@ class _CourseTableRowState extends State<_CourseTableRow>
     final serviceProvider = ServiceProvider.instance;
     final selectionState = serviceProvider.coursesService
         .getCourseSelectionState();
+    if (widget.course.classDetail != null) {
+      return selectionState.wantedCourses
+          .where((course) => course.uniqueKey == widget.course.uniqueKey)
+          .length;
+    }
     final courseKeyPrefix = '${widget.course.courseId}#';
     return selectionState.wantedCourses
         .where((course) => course.uniqueKey.startsWith(courseKeyPrefix))
@@ -1090,10 +1095,17 @@ class _CourseTableRowState extends State<_CourseTableRow>
 
   Widget _buildSelectionStatusIndicator() {
     final selectedCount = _getSelectedCountForCourse();
-    final courseKeyPrefix = '${widget.course.courseId}#';
-    final isAlreadySelected =
-        widget.selectedCourseKeys.contains(widget.course.uniqueKey) ||
-        widget.selectedCourseKeys.any((key) => key.startsWith(courseKeyPrefix));
+    final bool isAlreadySelected;
+    if (widget.course.classDetail != null) {
+      isAlreadySelected = widget.selectedCourseKeys.contains(
+        widget.course.uniqueKey,
+      );
+    } else {
+      final courseKeyPrefix = '${widget.course.courseId}#';
+      isAlreadySelected = widget.selectedCourseKeys.any(
+        (key) => key.startsWith(courseKeyPrefix),
+      );
+    }
 
     if (selectedCount == 0 && !isAlreadySelected) {
       return const SizedBox.shrink();
@@ -1170,10 +1182,15 @@ class _CourseTableRowState extends State<_CourseTableRow>
 
   @override
   Widget build(BuildContext context) {
+    final isToggleDisabled =
+        widget.isInteractionDisabled &&
+        !widget.isExpanded &&
+        widget.course.classDetail == null;
+
     return Column(
       children: [
         InkWell(
-          onTap: widget.isInteractionDisabled ? null : widget.onToggle,
+          onTap: isToggleDisabled ? null : widget.onToggle,
           splashColor: Theme.of(
             context,
           ).colorScheme.primary.withValues(alpha: 0.1),
