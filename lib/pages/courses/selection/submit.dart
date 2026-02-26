@@ -210,10 +210,6 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
     }
   }
 
-  String _getCourseKey(CourseInfo course) {
-    return '${course.courseId}_${course.classDetail?.classId ?? 'default'}';
-  }
-
   void _initializeTasks() {
     final selectionState = _serviceProvider.coursesService
         .getCourseSelectionState();
@@ -222,7 +218,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
 
     // Create multiple tasks per course
     for (final course in selectionState.wantedCourses) {
-      final courseKey = _getCourseKey(course);
+      final courseKey = course.uniqueKey;
       for (int i = 0; i < _concurrencyCount; i++) {
         _tasks.add(CourseSelectionTask(course: course));
       }
@@ -387,7 +383,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
     final Map<String, CourseInfo> courseMap = {};
 
     for (final task in _tasks) {
-      final courseKey = _getCourseKey(task.course);
+      final courseKey = task.course.uniqueKey;
       groupedTasks.putIfAbsent(courseKey, () => []).add(task);
       courseMap[courseKey] = task.course;
     }
@@ -688,7 +684,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
 
     final Set<String> uniqueCourses = {};
     for (final task in _tasks) {
-      uniqueCourses.add(_getCourseKey(task.course));
+      uniqueCourses.add(task.course.uniqueKey);
     }
     final courseCount = uniqueCourses.length;
 
@@ -748,7 +744,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
     int maxRetries = _autoRetry ? 33550336 : 1;
 
     for (int retry = 0; retry < maxRetries; retry++) {
-      final courseKey = _getCourseKey(task.course);
+      final courseKey = task.course.uniqueKey;
       if (_courseSuccessMap[courseKey] == true) {
         _safeSetState(() {
           if (task.status != CourseSelectionStatus.idle) {
@@ -823,7 +819,7 @@ class _CourseSubmitPageState extends State<CourseSubmitPage>
     final Map<String, bool> courseResults = {};
 
     for (final task in _tasks) {
-      final courseKey = _getCourseKey(task.course);
+      final courseKey = task.course.uniqueKey;
       if (task.status == CourseSelectionStatus.success) {
         courseResults[courseKey] = true;
       } else if (!courseResults.containsKey(courseKey)) {

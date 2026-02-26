@@ -11,7 +11,7 @@ class CourseDetailCard extends StatefulWidget {
   final VoidCallback onSelectionChanged;
   final VoidCallback onRefreshRequired;
   final CooldownHandler cooldownHandler;
-  final List<String> selectedCourseIds;
+  final Set<String> selectedCourseKeys;
 
   const CourseDetailCard({
     super.key,
@@ -22,7 +22,7 @@ class CourseDetailCard extends StatefulWidget {
     required this.onSelectionChanged,
     required this.onRefreshRequired,
     required this.cooldownHandler,
-    required this.selectedCourseIds,
+    required this.selectedCourseKeys,
   });
 
   @override
@@ -378,8 +378,8 @@ class _CourseDetailCardState extends State<CourseDetailCard>
 
   Widget _buildCourseDetailsList() {
     // Check if this course is already selected
-    final isAlreadySelected = widget.selectedCourseIds.contains(
-      widget.course.courseId,
+    final isAlreadySelected = widget.selectedCourseKeys.contains(
+      widget.course.uniqueKey,
     );
 
     if (isAlreadySelected) {

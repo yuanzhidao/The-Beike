@@ -600,7 +600,7 @@ class UstbByytService extends BaseCoursesService {
           fromTabId: tab,
           isSelected: false,
         );
-        courseMap[parsed.courseId] = parsed;
+        courseMap[parsed.uniqueKey] = parsed;
       }
 
       for (final item in selectedList) {
@@ -609,7 +609,7 @@ class UstbByytService extends BaseCoursesService {
           fromTabId: tab,
           isSelected: true,
         );
-        courseMap[parsed.courseId] = parsed;
+        courseMap[parsed.uniqueKey] = parsed;
       }
 
       return courseMap.values.toList();

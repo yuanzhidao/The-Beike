@@ -654,6 +654,10 @@ class CourseInfo extends BaseDataClass {
     this.fromTabId,
   });
 
+  String get uniqueKey {
+    return '$courseId#${classDetail?.classId ?? ''}';
+  }
+
   @override
   Map<String, dynamic> getEssentials() {
     return {'courseId': courseId, 'classDetail': classDetail?.classId};

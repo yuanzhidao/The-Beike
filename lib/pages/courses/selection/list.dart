@@ -28,8 +28,8 @@ class _CourseListPageState extends State<CourseListPage>
   List<CourseInfo> _courses = [];
   List<CourseInfo> _filteredCourses = [];
 
-  List<String> _selectedCourseIds = [];
-  String? _expandedCourseId; // Current expanded course ID
+  Set<String> _selectedCourseKeys = {};
+  String? _expandedCourseKey; // Current expanded course key
 
   bool _isLoading = false;
   bool _isLoadingCourses = false;
@@ -102,7 +102,7 @@ class _CourseListPageState extends State<CourseListPage>
     setState(() {
       _isLoadingCourses = true;
       _errorMessage = null;
-      _expandedCourseId = null;
+      _expandedCourseKey = null;
     });
     _startTabLoadBar();
 
@@ -119,7 +119,7 @@ class _CourseListPageState extends State<CourseListPage>
       // Remove duplicates
       final courseMap = <String, CourseInfo>{};
       for (final course in courses) {
-        courseMap[course.courseId] = course;
+        courseMap[course.uniqueKey] = course;
       }
       final uniqueCourses = courseMap.values.toList();
 
@@ -175,7 +175,7 @@ class _CourseListPageState extends State<CourseListPage>
       setState(() {
         _courses = combinedCourses;
         _filteredCourses = combinedCourses;
-        _selectedCourseIds = selectedInTab.map((c) => c.courseId).toList();
+        _selectedCourseKeys = selectedInTab.map((c) => c.uniqueKey).toSet();
         _availableCourseTypes = courseTypes;
         _availableCourseCategories = courseCategories;
         _minAvailableCredits = minCredits;
@@ -240,9 +240,9 @@ class _CourseListPageState extends State<CourseListPage>
       final allSelectedCourses = await _serviceProvider.coursesService
           .getAllSelectedCourses(widget.termInfo);
 
-      _selectedCourseIds = allSelectedCourses
-          .map((course) => course.courseId)
-          .toList();
+      _selectedCourseKeys = allSelectedCourses
+          .map((course) => course.uniqueKey)
+          .toSet();
 
       final selectionState = _serviceProvider.coursesService
           .getCourseSelectionState();
@@ -250,7 +250,7 @@ class _CourseListPageState extends State<CourseListPage>
       final remainingWantedCourses = selectionState.wantedCourses.where((
         course,
       ) {
-        return !_selectedCourseIds.contains(course.courseId);
+        return !_selectedCourseKeys.contains(course.uniqueKey);
       }).toList();
 
       final updatedState = CourseSelectionState(
@@ -379,9 +379,9 @@ class _CourseListPageState extends State<CourseListPage>
       final courseIdMatch = course.courseId.toLowerCase().contains(queryLower);
 
       if (courseIdMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
@@ -393,9 +393,9 @@ class _CourseListPageState extends State<CourseListPage>
       );
 
       if (courseNameMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
@@ -406,9 +406,9 @@ class _CourseListPageState extends State<CourseListPage>
           course.courseNameAlt?.toLowerCase().contains(queryLower) ?? false;
 
       if (courseNameAltMatch) {
-        if (!addedIds.contains(course.courseId)) {
+        if (!addedIds.contains(course.uniqueKey)) {
           priorityResults.add(course);
-          addedIds.add(course.courseId);
+          addedIds.add(course.uniqueKey);
         }
       }
     }
@@ -694,13 +694,13 @@ class _CourseListPageState extends State<CourseListPage>
                                       _selectedTab = tab;
                                       _courses = [];
                                       _filteredCourses = [];
-                                      _selectedCourseIds = [];
+                                      _selectedCourseKeys = {};
                                       _availableCourseTypes = [];
                                       _availableCourseCategories = [];
                                       _filterers.clear();
                                       _currentSearchQuery = '';
                                       _searchController.clear();
-                                      _expandedCourseId = null;
+                                      _expandedCourseKey = null;
                                       _errorMessage = null;
                                     });
                                     _loadCourses();
@@ -838,7 +838,8 @@ class _CourseListPageState extends State<CourseListPage>
                     itemCount: _filteredCourses.length,
                     itemBuilder: (context, index) {
                       final course = _filteredCourses[index];
-                      final isExpanded = _expandedCourseId == course.courseId;
+                      final isExpanded =
+                          _expandedCourseKey == course.uniqueKey;
 
                       return _CourseTableRow(
                         course: course,
@@ -848,9 +849,9 @@ class _CourseListPageState extends State<CourseListPage>
                         isInteractionDisabled: _isTabSwitchDisabled,
                         onToggle: () {
                           setState(() {
-                            _expandedCourseId = isExpanded
+                            _expandedCourseKey = isExpanded
                                 ? null
-                                : course.courseId;
+                                : course.uniqueKey;
                           });
                         },
                         onSelectionChanged: () {
@@ -859,7 +860,7 @@ class _CourseListPageState extends State<CourseListPage>
                         },
                         onRefreshRequired: _loadCourses,
                         cooldownHandler: _cooldownHandler,
-                        selectedCourseIds: _selectedCourseIds,
+                        selectedCourseKeys: _selectedCourseKeys,
                       );
                     },
                   ),
@@ -1053,7 +1054,7 @@ class _CourseTableRow extends StatefulWidget {
   final VoidCallback onSelectionChanged;
   final VoidCallback onRefreshRequired;
   final CooldownHandler cooldownHandler;
-  final List<String> selectedCourseIds;
+  final Set<String> selectedCourseKeys;
 
   const _CourseTableRow({
     required this.course,
@@ -1065,7 +1066,7 @@ class _CourseTableRow extends StatefulWidget {
     required this.onSelectionChanged,
     required this.onRefreshRequired,
     required this.cooldownHandler,
-    required this.selectedCourseIds,
+    required this.selectedCourseKeys,
   });
 
   @override
@@ -1088,8 +1089,8 @@ class _CourseTableRowState extends State<_CourseTableRow>
 
   Widget _buildSelectionStatusIndicator() {
     final selectedCount = _getSelectedCountForCourse();
-    final isAlreadySelected = widget.selectedCourseIds.contains(
-      widget.course.courseId,
+    final isAlreadySelected = widget.selectedCourseKeys.contains(
+      widget.course.uniqueKey,
     );
 
     if (selectedCount == 0 && !isAlreadySelected) {
@@ -1295,7 +1296,7 @@ class _CourseTableRowState extends State<_CourseTableRow>
           onSelectionChanged: widget.onSelectionChanged,
           onRefreshRequired: widget.onRefreshRequired,
           cooldownHandler: widget.cooldownHandler,
-          selectedCourseIds: widget.selectedCourseIds,
+          selectedCourseKeys: widget.selectedCourseKeys,
         ),
       ],
     );
