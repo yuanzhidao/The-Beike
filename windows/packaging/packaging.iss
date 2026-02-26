@@ -4,7 +4,7 @@
 ; Download Inno Setup: https://jrsoftware.org/isdl.php
 
 #define MyAppName "The Beike"
-#define MyAppFileName "the_beike"
+#define MyAppFileName "TheBeike"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Harry Huang"
 #define MyAppURL "https://thebeike.cn/"
